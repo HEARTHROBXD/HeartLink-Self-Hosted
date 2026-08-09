@@ -33,7 +33,7 @@
 | 账户与设备管理 | 提供注册、认证、会话、设备登记、吊销和独立设备控制通道。 |
 | 管理面板 | 单独的管理端口用于用户、设备、找回设置和审计管理。 |
 | 云端身份校验 | 安装时生成 Ed25519 身份密钥，并输出需要通过可信渠道录入客户端的公钥。 |
-| 可选 HTTPS 网关 | Caddy 使用两个独立域名为业务端点和管理面板自动配置 TLS。 |
+| 统一 IP 端点 | 业务 API 和管理面板始终发布到可配置 IPv4 地址；域名、证书和反向代理完全由部署者管理。 |
 | 可演进的协议边界 | API 固定在 `/v1`，数据库迁移只前进，共享模型与同步协议作为独立包维护。 |
 
 > [!IMPORTANT]
@@ -45,29 +45,37 @@
 
 - 一台 `x86_64` 或 `arm64` Linux 主机，并具有 root 权限。
 - 支持 Debian、Ubuntu、RHEL、Rocky Linux、AlmaLinux、CentOS、Fedora、openSUSE、SLES 和 Arch Linux。
-- 公网 HTTPS 模式还需要两个已解析到该主机的域名，以及可用的 `80/443` 端口。
+- 对外开放前，请配置主机防火墙；需要 HTTPS 时，请自行准备反向代理和与 IP 或域名匹配的受信任证书。
 
-### 局域网安装
+### 安装
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | sudo bash
 ```
 
-该模式将业务端点发布到局域网，并把管理面板绑定在 `127.0.0.1:8789`。局域网 HTTP 端点不应暴露到公网。
+安装器不区分局域网或公网，也不申请域名和证书。默认将业务 API 与管理面板发布到所有 IPv4 接口：
 
-### 公网 HTTPS 安装
+```text
+http://SERVER_IP:8787
+http://SERVER_IP:8789
+```
+
+如需限定监听网卡，可在首次安装或升级时指定地址：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | \
   sudo bash -s -- install \
-    --cloud-domain cloud.example.com \
-    --panel-domain panel.example.com \
-    --email admin@example.com
+    --publish-ip 192.168.1.20 \
+    --panel-publish-ip 192.168.1.20
 ```
+
+### 配置 HTTPS
+
+HTTPS 与域名由用户自行配置。反向代理可以使用 IP 或域名作为外部地址，并将请求转发到相同的 IP 上游：业务 API 为 `http://SERVER_IP:8787`，管理面板为 `http://SERVER_IP:8789`。使用 `https://IP` 时，证书必须包含对应 IP 的 Subject Alternative Name，并受到客户端系统信任；客户端不会跳过证书验证。
 
 ### 保存安装结果
 
-安装结束时，终端和 `/opt/heartlink-cloud/install-result.txt` 会显示云端地址、面板地址、随机管理密码、云端 Ed25519 身份公钥，以及局域网模式下的 SSH 隧道命令。该文件仅允许 root 读取。
+安装结束时，终端和 `/opt/heartlink-cloud/install-result.txt` 会显示基于 IP 的云端地址、面板地址、随机管理密码、云端 Ed25519 身份公钥、可选 SSH 隧道命令和 HTTPS 上游地址。该文件仅允许 root 读取。
 
 ## 使用方法
 
@@ -100,9 +108,10 @@ sudo /opt/heartlink-cloud/current/install.sh uninstall
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'fontSize': '14px', 'lineColor': '#64748B'}}}%%
 graph LR
-    A[HeartLink 客户端<br/>仓库外组件] -->|HTTPS /v1| B[Caddy 网关<br/>可选 TLS]
-    B --> C[业务 API<br/>Axum :8787]
-    B --> D[管理面板<br/>Axum :8789]
+    A[HeartLink 客户端<br/>仓库外组件] -->|可信私网 HTTP| C[业务 API<br/>IP :8787]
+    A -->|HTTPS + IP 或域名| B[用户管理的反向代理<br/>TLS 终止]
+    B -->|HTTP IP 上游| C
+    B -->|HTTP IP 上游| D[管理面板<br/>IP :8789]
     C --> E[账户与设备控制<br/>Argon2id / Ed25519]
     C --> F[(MySQL 8.4<br/>不透明密文)]
     D --> F
@@ -125,15 +134,15 @@ graph LR
 
 ## 配置
 
-一键安装器会在 `/opt/heartlink-cloud/config/heartlink.env` 生成运行配置。下表列出最常用的选项。
+一键安装器会在 `/opt/heartlink-cloud/.env` 生成运行配置。下表列出最常用的选项。
 
 | 变量 | 说明 | 默认值 |
 |---|---|---|
 | `HEARTLINK_DATABASE_NAME` | MySQL 数据库名。 | `heartlink` |
 | `HEARTLINK_DATABASE_USER` | MySQL 应用账户。 | `heartlink` |
 | `HEARTLINK_DATABASE_PASSWORD` | MySQL 应用账户密码。 | 安装器随机生成 |
-| `HEARTLINK_PUBLISH_IP` | 业务端口的发布地址。HTTPS 模式保持回环地址。 | 局域网为 `0.0.0.0` |
-| `HEARTLINK_PANEL_PUBLISH_IP` | 管理面板的发布地址。 | `127.0.0.1` |
+| `HEARTLINK_PUBLISH_IP` | 业务端口 `8787` 的 IPv4 发布地址；`0.0.0.0` 表示所有 IPv4 接口。 | `0.0.0.0` |
+| `HEARTLINK_PANEL_PUBLISH_IP` | 管理面板端口 `8789` 的 IPv4 发布地址；可设为指定网卡或 `127.0.0.1`。 | `0.0.0.0` |
 | `HEARTLINK_REGISTRATION_ENABLED` | 是否允许新账户注册。 | `true` |
 | `HEARTLINK_RECOVERY_EMAIL_WEBHOOK` | 邮箱验证码发送服务的 HTTPS webhook。 | 未设置 |
 | `HEARTLINK_RECOVERY_SMS_WEBHOOK` | 短信验证码发送服务的 HTTPS webhook。 | 未设置 |
@@ -167,7 +176,7 @@ graph LR
 │   ├── migrations_mysql/    # MySQL 前进迁移
 │   └── src/                 # API、握手和管理逻辑
 ├── docs/                    # 部署、安全模型、OpenAPI 与 ADR
-├── infra/docker/            # Compose、Caddy 与 1Panel 配置
+├── infra/docker/            # Compose 与 1Panel 配置
 ├── packages/
 │   ├── shared_models/       # 跨组件数据模型
 │   └── sync_protocol/       # 版本化同步协议
@@ -183,7 +192,7 @@ graph LR
 | 后端 | Rust 2024、Axum 0.8、Tokio | HTTP 服务、并发运行时和管理面板。 |
 | 数据 | SQLx 0.8、MySQL 8.4 | 数据访问、迁移和持久化。 |
 | 安全 | Argon2id、Ed25519、BLAKE3 | 密码验证、云端身份和 token 摘要。 |
-| 基础设施 | Docker Compose、Caddy 2 | 容器编排、自动 HTTPS 和网络隔离。 |
+| 基础设施 | Docker Compose | 容器编排、端口发布和数据库网络隔离。 |
 | 接口 | REST、OpenAPI 3.1 | `/v1` 版本化 API 与协议文档。 |
 | 验证 | Cargo test、Clippy、GitHub Actions | 格式、静态检查、测试和镜像构建。 |
 
@@ -191,8 +200,9 @@ graph LR
 
 一键安装器从当前仓库拉取源码，在服务器本地构建仅含自部署功能的镜像，并生成独立密码和身份密钥。
 
-- 使用 [Docker Compose 配置](infra/docker/compose.yaml)部署 MySQL、HeartLink 服务和可选 Caddy 网关。
+- 使用 [Docker Compose 配置](infra/docker/compose.yaml)部署 MySQL 和 HeartLink 服务；业务端口和面板端口均支持绑定指定 IPv4 地址。
 - 使用 [1Panel 配置](infra/docker/compose.1panel.yaml)接入已有的 MySQL 容器和 Docker 网络。
+- 域名、WAF、TLS 证书和反向代理不属于安装器职责；用户可以选择 Nginx、Caddy、1Panel、雷池或其他网关，并使用 IP 上游。
 - 使用 [GitHub Actions](.github/workflows/ci.yml)验证格式、Clippy、测试、Docker 构建和公开边界。
 - 生产部署前阅读 [安全策略](SECURITY.md)，备份 `/opt/heartlink-cloud/secrets`、配置文件和 Docker 数据卷。
 

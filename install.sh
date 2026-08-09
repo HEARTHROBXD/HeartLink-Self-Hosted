@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-readonly INSTALLER_VERSION="1.0.0"
+readonly INSTALLER_VERSION="1.1.0"
 readonly DEFAULT_INSTALL_DIR="/opt/heartlink-cloud"
 readonly DEFAULT_REPOSITORY="HEARTHROBXD/HeartLink-Self-Hosted"
 
@@ -10,9 +10,8 @@ COMMAND="install"
 INSTALL_DIR="${HEARTLINK_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 REPOSITORY="${HEARTLINK_REPOSITORY:-$DEFAULT_REPOSITORY}"
 SOURCE_REF="${HEARTLINK_SOURCE_REF:-main}"
-CLOUD_DOMAIN="${HEARTLINK_CLOUD_DOMAIN:-}"
-PANEL_DOMAIN="${HEARTLINK_PANEL_DOMAIN:-}"
-ACME_EMAIL="${HEARTLINK_ACME_EMAIL:-}"
+PUBLISH_IP="${HEARTLINK_PUBLISH_IP:-0.0.0.0}"
+PANEL_PUBLISH_IP="${HEARTLINK_PANEL_PUBLISH_IP:-0.0.0.0}"
 PURGE_DATA=0
 
 log() { printf '[HeartLink] %s\n' "$*"; }
@@ -26,16 +25,19 @@ Usage:
   sudo bash install.sh [install|upgrade|status|uninstall] [options]
 
 Options:
-  --cloud-domain DOMAIN  Enable automatic HTTPS for the client cloud endpoint.
-  --panel-domain DOMAIN  Enable automatic HTTPS for the administration panel.
-  --email EMAIL          ACME certificate notification email.
+  --publish-ip ADDRESS   Bind the client cloud endpoint to this IPv4 address
+                         (default: 0.0.0.0).
+  --panel-publish-ip ADDRESS
+                         Bind the administration panel to this IPv4 address
+                         (default: 0.0.0.0).
   --install-dir PATH     Installation root (default: /opt/heartlink-cloud).
   --source-ref REF       Git branch or tag to install (default: main).
   --purge-data           With uninstall only, permanently remove volumes and files.
   -h, --help             Show this help.
 
-Without domains, the cloud is exposed on the server's LAN address and the panel
-is bound to 127.0.0.1. Use an SSH tunnel to reach the panel securely.
+The installer does not configure domains, certificates, or a reverse proxy.
+Both services are published by IP. Configure HTTPS separately and proxy to
+the selected IP addresses on ports 8787 and 8789.
 EOF
 }
 
@@ -46,9 +48,8 @@ parse_args() {
   fi
   while (($#)); do
     case "$1" in
-      --cloud-domain) CLOUD_DOMAIN="${2:?missing cloud domain}"; shift 2 ;;
-      --panel-domain) PANEL_DOMAIN="${2:?missing panel domain}"; shift 2 ;;
-      --email) ACME_EMAIL="${2:?missing ACME email}"; shift 2 ;;
+      --publish-ip) PUBLISH_IP="${2:?missing publish IP}"; shift 2 ;;
+      --panel-publish-ip) PANEL_PUBLISH_IP="${2:?missing panel publish IP}"; shift 2 ;;
       --install-dir) INSTALL_DIR="${2:?missing install directory}"; shift 2 ;;
       --source-ref) SOURCE_REF="${2:?missing source ref}"; shift 2 ;;
       --purge-data) PURGE_DATA=1; shift ;;
@@ -108,14 +109,20 @@ install_docker() {
   docker compose version >/dev/null 2>&1 || fail "Docker Compose plugin installation failed"
 }
 
-validate_domains() {
-  if [[ -n "$CLOUD_DOMAIN" || -n "$PANEL_DOMAIN" || -n "$ACME_EMAIL" ]]; then
-    [[ -n "$CLOUD_DOMAIN" && -n "$PANEL_DOMAIN" && -n "$ACME_EMAIL" ]] || \
-      fail "--cloud-domain, --panel-domain and --email must be supplied together"
-    [[ "$CLOUD_DOMAIN" != "$PANEL_DOMAIN" ]] || fail "cloud and panel domains must differ"
-    [[ "$CLOUD_DOMAIN" != *://* && "$PANEL_DOMAIN" != *://* ]] || \
-      fail "provide host names without http:// or https://"
-  fi
+validate_ipv4() {
+  local label="$1" value="$2" octet
+  [[ "$value" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || \
+    fail "$label must be an IPv4 address such as 0.0.0.0, 127.0.0.1 or 192.168.1.20"
+  local -a octets
+  IFS='.' read -r -a octets <<<"$value"
+  for octet in "${octets[@]}"; do
+    ((10#$octet <= 255)) || fail "$label contains an invalid IPv4 octet"
+  done
+}
+
+validate_publish_addresses() {
+  validate_ipv4 "--publish-ip" "$PUBLISH_IP"
+  validate_ipv4 "--panel-publish-ip" "$PANEL_PUBLISH_IP"
 }
 
 random_secret() {
@@ -138,14 +145,10 @@ write_initial_secrets() {
 write_environment() {
   local env_file="$INSTALL_DIR/.env"
   if [[ -f "$env_file" ]]; then
-    upsert_env HEARTLINK_PUBLISH_IP "$([[ -n "$CLOUD_DOMAIN" ]] && printf '127.0.0.1' || printf '0.0.0.0')"
-    upsert_env HEARTLINK_CLOUD_DOMAIN "$CLOUD_DOMAIN"
-    upsert_env HEARTLINK_PANEL_DOMAIN "$PANEL_DOMAIN"
-    upsert_env HEARTLINK_ACME_EMAIL "$ACME_EMAIL"
+    upsert_env HEARTLINK_PUBLISH_IP "$PUBLISH_IP"
+    upsert_env HEARTLINK_PANEL_PUBLISH_IP "$PANEL_PUBLISH_IP"
     return
   fi
-  local cloud_publish_ip="0.0.0.0"
-  [[ -z "$CLOUD_DOMAIN" ]] || cloud_publish_ip="127.0.0.1"
   umask 077
   cat >"$env_file" <<EOF
 HEARTLINK_DATABASE_NAME=heartlink
@@ -157,20 +160,11 @@ HEARTLINK_REGISTRATION_ENABLED=true
 HEARTLINK_HANDSHAKE_KEY_PATH=$INSTALL_DIR/secrets/cloud-handshake.key
 HEARTLINK_ADMIN_PASSWORD_PATH=$INSTALL_DIR/secrets/admin-password.txt
 HEARTLINK_ADMIN_SETTINGS_KEY_PATH=$INSTALL_DIR/secrets/admin-settings.key
-HEARTLINK_PUBLISH_IP=$cloud_publish_ip
-HEARTLINK_PANEL_PUBLISH_IP=127.0.0.1
-HEARTLINK_CLOUD_DOMAIN=$CLOUD_DOMAIN
-HEARTLINK_PANEL_DOMAIN=$PANEL_DOMAIN
-HEARTLINK_ACME_EMAIL=$ACME_EMAIL
+HEARTLINK_PUBLISH_IP=$PUBLISH_IP
+HEARTLINK_PANEL_PUBLISH_IP=$PANEL_PUBLISH_IP
 TZ=${TZ:-Asia/Shanghai}
 EOF
   chmod 0600 "$env_file"
-}
-
-read_env_value() {
-  local key="$1" env_file="$INSTALL_DIR/.env"
-  [[ -f "$env_file" ]] || return 0
-  awk -F= -v key="$key" '$1 == key {sub(/^[^=]*=/, ""); print; exit}' "$env_file"
 }
 
 upsert_env() {
@@ -184,13 +178,6 @@ upsert_env() {
   ' "$env_file" >"$temporary"
   chmod 0600 "$temporary"
   mv -f -- "$temporary" "$env_file"
-}
-
-load_existing_configuration() {
-  [[ -f "$INSTALL_DIR/.env" ]] || return 0
-  [[ -n "$CLOUD_DOMAIN" ]] || CLOUD_DOMAIN="$(read_env_value HEARTLINK_CLOUD_DOMAIN)"
-  [[ -n "$PANEL_DOMAIN" ]] || PANEL_DOMAIN="$(read_env_value HEARTLINK_PANEL_DOMAIN)"
-  [[ -n "$ACME_EMAIL" ]] || ACME_EMAIL="$(read_env_value HEARTLINK_ACME_EMAIL)"
 }
 
 download_release() {
@@ -212,9 +199,6 @@ download_release() {
 compose() {
   local args=(--project-name heartlink-cloud --env-file "$INSTALL_DIR/.env" \
     -f "$INSTALL_DIR/current/infra/docker/compose.yaml")
-  if [[ -n "$CLOUD_DOMAIN" ]]; then
-    args+=(--profile gateway)
-  fi
   docker compose "${args[@]}" "$@"
 }
 
@@ -241,35 +225,34 @@ server_lan_ip() {
 }
 
 write_result() {
-  local lan_ip cloud_url panel_url tunnel
-  lan_ip="$(server_lan_ip)"
-  lan_ip="${lan_ip:-SERVER_IP}"
-  if [[ -n "$CLOUD_DOMAIN" ]]; then
-    cloud_url="https://$CLOUD_DOMAIN"
-    panel_url="https://$PANEL_DOMAIN"
-    tunnel="not required; the panel is protected by HTTPS and its password"
+  local server_ip cloud_ip panel_ip tunnel
+  server_ip="$(server_lan_ip)"
+  server_ip="${server_ip:-SERVER_IP}"
+  cloud_ip="$PUBLISH_IP"
+  panel_ip="$PANEL_PUBLISH_IP"
+  [[ "$cloud_ip" != "0.0.0.0" ]] || cloud_ip="$server_ip"
+  [[ "$panel_ip" != "0.0.0.0" ]] || panel_ip="$server_ip"
+  if [[ "$panel_ip" == "127.0.0.1" ]]; then
+    tunnel="ssh -N -L 8789:127.0.0.1:8789 root@$server_ip"
   else
-    cloud_url="http://$lan_ip:8787"
-    panel_url="http://127.0.0.1:8789"
-    tunnel="ssh -N -L 8789:127.0.0.1:8789 root@$lan_ip"
+    tunnel="not required; connect to the published panel IP"
   fi
   umask 077
   cat >"$INSTALL_DIR/install-result.txt" <<EOF
 HeartLink Self-Hosted
 Installer version: $INSTALLER_VERSION
-Cloud endpoint: $cloud_url
-Administration panel: $panel_url
+Cloud endpoint: http://$cloud_ip:8787
+Administration panel: http://$panel_ip:8789
 Administration password: $(<"$INSTALL_DIR/secrets/admin-password.txt")
 Cloud identity public key: $(<"$INSTALL_DIR/secrets/cloud-identity-public-key.txt")
 Panel SSH tunnel: $tunnel
+HTTPS upstreams: http://$cloud_ip:8787 and http://$panel_ip:8789
 EOF
   chmod 0600 "$INSTALL_DIR/install-result.txt"
   printf '\n'
   cat "$INSTALL_DIR/install-result.txt"
-  if [[ -z "$CLOUD_DOMAIN" ]]; then
-    printf '\nLAN mode uses HTTP and is intended only for a trusted private network.\n'
-    printf 'For Internet access, rerun upgrade with both domains and an ACME email.\n'
-  fi
+  printf '\nThe installer does not manage TLS or domains.\n'
+  printf 'Before exposing these ports, configure a firewall and a trusted HTTPS reverse proxy.\n'
 }
 
 install_or_upgrade() {
@@ -317,8 +300,7 @@ uninstall_cloud() {
 main() {
   parse_args "$@"
   require_root_linux
-  load_existing_configuration
-  validate_domains
+  validate_publish_addresses
   case "$COMMAND" in
     install)
       [[ ! -e "$INSTALL_DIR/.heartlink-install-root" ]] || \

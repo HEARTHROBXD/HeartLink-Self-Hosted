@@ -33,7 +33,7 @@
 | Account and device management | Provides registration, authentication, sessions, device enrollment, revocation, and a separate device-control channel. |
 | Administration panel | Uses a dedicated administration port for user, device, recovery, and audit management. |
 | Cloud identity verification | Generates an Ed25519 identity during installation and outputs the public key for trusted client enrollment. |
-| Optional HTTPS gateway | Uses Caddy and two separate domains to configure TLS for the cloud endpoint and administration panel. |
+| Unified IP endpoints | Publishes the cloud API and administration panel on configurable IPv4 addresses; domains, certificates, and reverse proxies are fully operator-managed. |
 | Evolvable protocol boundary | Keeps APIs under `/v1`, uses forward-only database migrations, and maintains shared models and sync protocols as separate packages. |
 
 > [!IMPORTANT]
@@ -45,29 +45,37 @@
 
 - An `x86_64` or `arm64` Linux host with root access.
 - Debian, Ubuntu, RHEL, Rocky Linux, AlmaLinux, CentOS, Fedora, openSUSE, SLES, and Arch Linux are supported.
-- Public HTTPS mode also requires two domains that resolve to the host and available ports `80/443`.
+- Configure the host firewall before exposing the service. HTTPS requires an operator-managed reverse proxy and a trusted certificate matching the selected IP address or domain.
 
-### Install for a trusted LAN
+### Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | sudo bash
 ```
 
-This mode publishes the cloud endpoint to the LAN and binds the administration panel to `127.0.0.1:8789`. Do not expose the LAN HTTP endpoint to the public Internet.
+The installer does not distinguish between LAN and Internet deployment, and it does not request domains or certificates. By default, the cloud API and administration panel are published on every IPv4 interface:
 
-### Install with public HTTPS
+```text
+http://SERVER_IP:8787
+http://SERVER_IP:8789
+```
+
+To restrict either service to a specific interface, provide its IPv4 address during installation or upgrade:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | \
   sudo bash -s -- install \
-    --cloud-domain cloud.example.com \
-    --panel-domain panel.example.com \
-    --email admin@example.com
+    --publish-ip 192.168.1.20 \
+    --panel-publish-ip 192.168.1.20
 ```
+
+### Configure HTTPS
+
+Operators manage HTTPS and domains independently. A reverse proxy may expose an IP address or a domain and forward traffic to the same IP upstreams: `http://SERVER_IP:8787` for the cloud API and `http://SERVER_IP:8789` for the administration panel. When using `https://IP`, the certificate must contain that IP in its Subject Alternative Name and be trusted by the client system; the client never bypasses certificate validation.
 
 ### Save the installation result
 
-When installation completes, the terminal and `/opt/heartlink-cloud/install-result.txt` show the cloud endpoint, panel URL, random administration password, Ed25519 cloud identity public key, and the SSH tunnel command for LAN mode. Only root can read this file.
+When installation completes, the terminal and `/opt/heartlink-cloud/install-result.txt` show IP-based cloud and panel URLs, the random administration password, the Ed25519 cloud identity public key, an optional SSH tunnel command, and the HTTPS upstream addresses. Only root can read this file.
 
 ## Usage
 
@@ -100,9 +108,10 @@ The client encrypts data before synchronization. The self-hosted service handles
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'fontSize': '14px', 'lineColor': '#64748B'}}}%%
 graph LR
-    A[HeartLink Client<br/>Not included] -->|HTTPS /v1| B[Caddy Gateway<br/>Optional TLS]
-    B --> C[Cloud API<br/>Axum :8787]
-    B --> D[Admin Panel<br/>Axum :8789]
+    A[HeartLink Client<br/>Not included] -->|Trusted private HTTP| C[Cloud API<br/>IP :8787]
+    A -->|HTTPS + IP or domain| B[Operator-managed proxy<br/>TLS termination]
+    B -->|HTTP IP upstream| C
+    B -->|HTTP IP upstream| D[Admin Panel<br/>IP :8789]
     C --> E[Account and Device Control<br/>Argon2id / Ed25519]
     C --> F[(MySQL 8.4<br/>Opaque Ciphertext)]
     D --> F
@@ -125,15 +134,15 @@ graph LR
 
 ## Configuration
 
-The installer writes runtime configuration to `/opt/heartlink-cloud/config/heartlink.env`. The table lists the most commonly used options.
+The installer writes runtime configuration to `/opt/heartlink-cloud/.env`. The table lists the most commonly used options.
 
 | Variable | Description | Default |
 |---|---|---|
 | `HEARTLINK_DATABASE_NAME` | MySQL database name. | `heartlink` |
 | `HEARTLINK_DATABASE_USER` | MySQL application account. | `heartlink` |
 | `HEARTLINK_DATABASE_PASSWORD` | MySQL application password. | Randomly generated |
-| `HEARTLINK_PUBLISH_IP` | Published address for the cloud port. HTTPS mode keeps this on loopback. | `0.0.0.0` on LAN |
-| `HEARTLINK_PANEL_PUBLISH_IP` | Published address for the administration panel. | `127.0.0.1` |
+| `HEARTLINK_PUBLISH_IP` | IPv4 publish address for cloud port `8787`; `0.0.0.0` selects every IPv4 interface. | `0.0.0.0` |
+| `HEARTLINK_PANEL_PUBLISH_IP` | IPv4 publish address for panel port `8789`; set a specific interface or `127.0.0.1` when required. | `0.0.0.0` |
 | `HEARTLINK_REGISTRATION_ENABLED` | Enables new account registration. | `true` |
 | `HEARTLINK_RECOVERY_EMAIL_WEBHOOK` | HTTPS webhook for email recovery codes. | Unset |
 | `HEARTLINK_RECOVERY_SMS_WEBHOOK` | HTTPS webhook for SMS recovery codes. | Unset |
@@ -167,7 +176,7 @@ The public protocol is defined in the [OpenAPI 3.1 specification](docs/api/opena
 │   ├── migrations_mysql/    # Forward-only MySQL migrations
 │   └── src/                 # API, handshake, and administration logic
 ├── docs/                    # Deployment, security, OpenAPI, and ADRs
-├── infra/docker/            # Compose, Caddy, and 1Panel configuration
+├── infra/docker/            # Compose and 1Panel configuration
 ├── packages/
 │   ├── shared_models/       # Cross-component data models
 │   └── sync_protocol/       # Versioned synchronization protocol
@@ -183,7 +192,7 @@ The public protocol is defined in the [OpenAPI 3.1 specification](docs/api/opena
 | Backend | Rust 2024, Axum 0.8, Tokio | HTTP services, concurrent runtime, and administration panel. |
 | Data | SQLx 0.8, MySQL 8.4 | Data access, migrations, and persistence. |
 | Security | Argon2id, Ed25519, BLAKE3 | Password verification, cloud identity, and token digests. |
-| Infrastructure | Docker Compose, Caddy 2 | Container orchestration, automatic HTTPS, and network isolation. |
+| Infrastructure | Docker Compose | Container orchestration, port publishing, and database network isolation. |
 | Interface | REST, OpenAPI 3.1 | Versioned `/v1` API and protocol documentation. |
 | Validation | Cargo test, Clippy, GitHub Actions | Formatting, static analysis, tests, and image builds. |
 
@@ -191,8 +200,9 @@ The public protocol is defined in the [OpenAPI 3.1 specification](docs/api/opena
 
 The one-command installer pulls source from this repository, builds the self-hosted-only image on the server, and generates independent passwords and identity keys.
 
-- Use the [Docker Compose configuration](infra/docker/compose.yaml) for MySQL, HeartLink, and the optional Caddy gateway.
+- Use the [Docker Compose configuration](infra/docker/compose.yaml) for MySQL and HeartLink; both application ports support binding to a selected IPv4 address.
 - Use the [1Panel configuration](infra/docker/compose.1panel.yaml) with an existing MySQL container and Docker network.
+- Domains, WAFs, TLS certificates, and reverse proxies are outside the installer boundary. Operators may use Nginx, Caddy, 1Panel, SafeLine, or another gateway with IP upstreams.
 - Use [GitHub Actions](.github/workflows/ci.yml) to validate formatting, Clippy, tests, Docker builds, and the public-source boundary.
 - Read the [security policy](SECURITY.md) before production deployment, and back up `/opt/heartlink-cloud/secrets`, configuration, and Docker volumes.
 
