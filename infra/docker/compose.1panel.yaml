@@ -29,8 +29,8 @@ services:
       - "${HEARTLINK_ADMIN_PASSWORD_PATH:-./secrets/admin-password.txt}:/run/heartlink-secrets/admin-password.txt:ro"
       - "${HEARTLINK_ADMIN_SETTINGS_KEY_PATH:-./secrets/admin-settings.key}:/run/heartlink-secrets/admin-settings.key:ro"
     ports:
-      - "${HEARTLINK_PUBLISH_IP:?set the business server private IP}:8787:8787"
-      - "${HEARTLINK_PANEL_PUBLISH_IP:-127.0.0.1}:8789:8789"
+      - "${HEARTLINK_PUBLISH_IP:?set the IPv4 publish address}:8787:8787"
+      - "${HEARTLINK_PANEL_PUBLISH_IP:-0.0.0.0}:8789:8789"
     networks:
       - onepanel
     security_opt:
