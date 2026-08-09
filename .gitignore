@@ -1,0 +1,7 @@
+.env
+target/
+secrets/
+install-result.txt
+*.db
+*.db-shm
+*.db-wal

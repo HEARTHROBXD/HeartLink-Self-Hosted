@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = [
+  "apps/server",
+  "packages/shared_models",
+  "packages/sync_protocol",
+]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.85"
+
+[workspace.dependencies]
+argon2 = "0.5.3"
+axum = { version = "0.8.9", features = ["multipart"] }
+base64 = "0.22.1"
+blake3 = "1.8.2"
+lettre = { version = "0.11.19", default-features = false, features = ["builder", "smtp-transport", "tokio1-rustls-tls"] }
+rand = "0.8.5"
+reqwest = { version = "0.12.28", default-features = false, features = ["json", "rustls-tls"] }
+ring = "0.17.14"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0"
+sqlx = { version = "0.8.6", default-features = false, features = ["runtime-tokio", "any", "mysql", "sqlite", "migrate", "macros"] }
+thiserror = "2.0"
+time = { version = "=0.3.36", features = ["serde"] }
+tokio = { version = "1.53.1", features = ["macros", "rt-multi-thread", "net", "signal", "fs", "io-util", "sync"] }
+tokio-util = { version = "0.7.16", features = ["io"] }
+tower = { version = "0.5.3", features = ["util"] }
+tower-http = { version = "0.6.8", features = ["trace"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+uuid = { version = "1.24.0", features = ["v4", "serde"] }
+url = "2.5.7"
+zip = { version = "2.4.2", default-features = false, features = ["deflate"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
