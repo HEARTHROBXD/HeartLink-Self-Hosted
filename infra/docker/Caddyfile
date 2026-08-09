@@ -1,0 +1,14 @@
+{
+  email {$HEARTLINK_ACME_EMAIL}
+  admin off
+}
+
+{$HEARTLINK_CLOUD_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy sync:8787
+}
+
+{$HEARTLINK_PANEL_DOMAIN} {
+  encode zstd gzip
+  reverse_proxy sync:8789
+}

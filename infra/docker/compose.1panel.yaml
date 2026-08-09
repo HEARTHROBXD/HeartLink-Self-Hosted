@@ -1,0 +1,45 @@
+services:
+  sync:
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+    image: heartlink/sync:local
+    restart: unless-stopped
+    environment:
+      HEARTLINK_SERVICE_ROLE: "self-hosted"
+      HEARTLINK_CLOUD_HANDSHAKE_KEY_FILE: "/run/heartlink-secrets/cloud-handshake.key"
+      HEARTLINK_CLOUD_HANDSHAKE_KEY_ID: "${HEARTLINK_HANDSHAKE_KEY_ID:-self-hosted-cloud-v1}"
+      HEARTLINK_ADMIN_PASSWORD_FILE: "/run/heartlink-secrets/admin-password.txt"
+      HEARTLINK_ADMIN_SETTINGS_KEY_FILE: "/run/heartlink-secrets/admin-settings.key"
+      HEARTLINK_DATABASE_HOST: "${HEARTLINK_DATABASE_HOST:?set the 1Panel MySQL container name}"
+      HEARTLINK_DATABASE_PORT: "${HEARTLINK_DATABASE_PORT:-3306}"
+      HEARTLINK_DATABASE_NAME: "${HEARTLINK_DATABASE_NAME:-heartlink}"
+      HEARTLINK_DATABASE_USER: "${HEARTLINK_DATABASE_USER:-heartlink}"
+      HEARTLINK_DATABASE_PASSWORD: "${HEARTLINK_DATABASE_PASSWORD:?set HEARTLINK_DATABASE_PASSWORD}"
+      HEARTLINK_CLOUD_BIND: "0.0.0.0:8787"
+      HEARTLINK_ADMIN_BIND: "0.0.0.0:8789"
+      HEARTLINK_REGISTRATION_ENABLED: "${HEARTLINK_REGISTRATION_ENABLED:-true}"
+      HEARTLINK_RECOVERY_EMAIL_WEBHOOK: "${HEARTLINK_RECOVERY_EMAIL_WEBHOOK:-}"
+      HEARTLINK_RECOVERY_SMS_WEBHOOK: "${HEARTLINK_RECOVERY_SMS_WEBHOOK:-}"
+      HEARTLINK_RECOVERY_WEBHOOK_TOKEN: "${HEARTLINK_RECOVERY_WEBHOOK_TOKEN:-}"
+      HEARTLINK_RECOVERY_PEPPER: "${HEARTLINK_RECOVERY_PEPPER:-}"
+      RUST_LOG: "heartlink_server=info,tower_http=info"
+    volumes:
+      - "${HEARTLINK_HANDSHAKE_KEY_PATH:-./secrets/cloud-handshake.key}:/run/heartlink-secrets/cloud-handshake.key:ro"
+      - "${HEARTLINK_ADMIN_PASSWORD_PATH:-./secrets/admin-password.txt}:/run/heartlink-secrets/admin-password.txt:ro"
+      - "${HEARTLINK_ADMIN_SETTINGS_KEY_PATH:-./secrets/admin-settings.key}:/run/heartlink-secrets/admin-settings.key:ro"
+    ports:
+      - "${HEARTLINK_PUBLISH_IP:?set the business server private IP}:8787:8787"
+      - "${HEARTLINK_PANEL_PUBLISH_IP:-127.0.0.1}:8789:8789"
+    networks:
+      - onepanel
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+
+networks:
+  onepanel:
+    external: true
+    name: "${HEARTLINK_DOCKER_NETWORK:?set the Docker network shared with MySQL}"
