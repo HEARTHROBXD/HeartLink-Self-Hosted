@@ -1,0 +1,39 @@
+[package]
+name = "heartlink-server"
+version = "0.1.0"
+edition.workspace = true
+license = "AGPL-3.0-only"
+
+[features]
+default = ["self-hosted"]
+self-hosted = []
+
+[dependencies]
+argon2.workspace = true
+heartlink-shared-models = { path = "../../packages/shared_models" }
+heartlink-sync-protocol = { path = "../../packages/sync_protocol" }
+axum.workspace = true
+base64.workspace = true
+blake3.workspace = true
+lettre.workspace = true
+rand.workspace = true
+reqwest.workspace = true
+ring.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+time.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+tower-http.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+uuid.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+tower.workspace = true
+
+[lints]
+workspace = true
