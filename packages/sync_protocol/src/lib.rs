@@ -24,7 +24,7 @@ pub struct HealthResponse {
 pub struct HandshakeRequest {
     /// Handshake wire version.
     pub protocol_version: u16,
-    /// Service identity expected by the client (`cloud` or `update`).
+    /// Service identity expected by the client (`cloud`).
     pub audience: String,
     /// Base64URL-encoded 32-byte X25519 public key.
     pub client_public_key: String,
@@ -54,40 +54,6 @@ pub struct HandshakeResponse {
     /// Unix timestamp when the request-signing session expires.
     pub expires_at: i64,
     /// Base64URL-encoded Ed25519 signature over the canonical transcript.
-    pub signature: String,
-}
-
-/// Signed description of the latest application release.
-#[derive(Debug, Serialize, Deserialize)]
-pub struct UpdateManifestResponse {
-    /// Stable update channel.
-    pub channel: String,
-    /// Target platform, for example `windows-x64`.
-    pub platform: String,
-    /// Semantic product version.
-    pub version: String,
-    /// Monotonically increasing application build number.
-    pub build: u32,
-    /// Oldest build allowed to continue without a mandatory update.
-    pub minimum_supported_build: u32,
-    /// Whether this release must be installed before cloud use continues.
-    pub mandatory: bool,
-    /// Human-readable release notes.
-    pub notes: String,
-    /// Unix timestamp when the release was published.
-    pub published_at: i64,
-    /// Exact archive size in bytes.
-    pub size: u64,
-    /// Uppercase hexadecimal SHA-256 of the archive.
-    pub sha256: String,
-    /// Same-origin path used to download the archive.
-    pub download_path: String,
-    /// Signed package type: `installer-exe` or `portable-zip`.
-    #[serde(default)]
-    pub package_format: String,
-    /// Signing key identifier.
-    pub key_id: String,
-    /// Base64URL-encoded Ed25519 signature over the canonical manifest.
     pub signature: String,
 }
 
