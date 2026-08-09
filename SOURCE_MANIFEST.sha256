@@ -1,4 +1,4 @@
-44e4cc216bdf625cc9a6b0d8fbedfdc08d94043875aff0d779368cd3f62980a8  .github/workflows/ci.yml
+b351252794b608d7a018fc4bb763aa036c677f34422276855fccfa037b876b20  .github/workflows/ci.yml
 9c54eac3c190c6da2e34a4858c1a7ea9e893c9025faaf883a753bba3310a5f58  .gitignore
 aa015e72c9d4761dfb70a34dcaf2db04ab30ef0f824637366d99d10ac0c31faa  apps/server/Cargo.toml
 7b80ae8bdae4389d48f3668a33a177ef192605540f89f11a6c8e95c83a1ba383  apps/server/Dockerfile
