@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>HeartLink 官方云控制台</title>
+  <style>
+    :root{color-scheme:dark;--bg:#08111d;--rail:#0c1725;--panel:#101c2a;--panel-2:#142235;--line:#26384d;--line-strong:#36506d;--ink:#edf3fb;--muted:#91a2b8;--accent:#4f7ff5;--accent-soft:#172c55;--success:#36c99a;--warning:#e5a94f;--danger:#ff737d;--radius:2px}
+    *{box-sizing:border-box}
+    html,body{margin:0;min-height:100%;background:var(--bg);color:var(--ink);font:14px/1.45 "Segoe UI Variable","Microsoft YaHei UI",system-ui,sans-serif}
+    body{min-height:100vh}
+    button,input,textarea,select{font:inherit}
+    button{border:1px solid transparent;border-radius:var(--radius);background:var(--accent);color:white;padding:9px 13px;font-weight:650;cursor:pointer}
+    button:hover{filter:brightness(1.08)}button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:2px solid #9bb7ff;outline-offset:2px}
+    button.secondary{background:#172537;border-color:#31455e;color:#d7e2ef}button.danger{background:#351922;border-color:#703141;color:#ffabb1}
+    .app-shell{min-height:100vh}
+    .rail{position:fixed;inset:0 auto 0 0;width:224px;height:100vh;background:var(--rail);border-right:1px solid var(--line);display:flex;flex-direction:column;padding:22px 14px;z-index:5}
+    .brand{display:flex;align-items:center;gap:11px;padding:0 8px 24px}.brand-mark{width:34px;height:34px;display:grid;place-items:center;background:var(--accent);font-weight:800;letter-spacing:-1px}.brand-copy strong{display:block;font-size:17px}.brand-copy small{color:var(--muted);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+    .nav-label{color:#70849e;font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:9px 10px}.nav{display:grid;gap:4px}.nav button{width:100%;display:flex;align-items:center;justify-content:flex-start;background:transparent;border-color:transparent;color:#b8c7d9;text-align:left;padding:10px 11px;font-weight:600}.nav button.active{background:var(--accent-soft);color:white;border-color:#4f7ff5}
+    .rail-foot{margin-top:auto;border-top:1px solid var(--line);padding:16px 8px 0;display:grid;gap:12px}.network-state{display:flex;align-items:center;gap:8px;color:#b9c7d7;font-size:12px}.status-dot{width:7px;height:7px;background:var(--success)}.rail-foot form button{width:100%}
+    .workspace{min-width:0;margin-left:224px}.topbar{min-height:82px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:18px;padding:15px 26px;background:#0a1421}.topbar h1{font-size:22px;line-height:1.2;margin:0;letter-spacing:-.35px}.topbar-spacer{flex:1}.privacy-state{max-width:360px;color:var(--muted);font-size:12px;text-align:right}
+    .content{padding:22px 26px 40px;max-width:1680px;margin:0 auto}.metric-strip{display:grid;grid-template-columns:repeat(7,minmax(108px,1fr));border:1px solid var(--line);background:var(--panel);margin-bottom:16px}.metric{min-height:82px;padding:14px 15px;border-right:1px solid var(--line)}.metric:last-child{border-right:0}.metric-label{color:var(--muted);font-size:12px}.metric-value{font:700 24px/1.2 "Segoe UI Variable",system-ui;margin-top:7px;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
+    .context-note{display:grid;grid-template-columns:auto 1fr;gap:10px;border:1px solid #29436e;background:#0e1b2b;color:#b6c5d7;padding:11px 13px;margin-bottom:16px}.context-note strong{color:#dce8f6}
+    .panel{background:var(--panel);border:1px solid var(--line);min-width:0}.panel-head{display:flex;align-items:center;gap:12px;padding:14px 16px;border-bottom:1px solid var(--line);background:#111f2f}.panel-head h2{font-size:16px;margin:0}.panel-head .muted{margin-left:auto}.panel-body{padding:16px}.hidden{display:none!important}.muted{color:var(--muted)}.status{min-height:20px;color:#a9bad0}
+    .toolbar{display:flex;align-items:center;gap:10px}.search{width:min(360px,40vw);background:#091421;color:var(--ink);border:1px solid #30455e;border-radius:var(--radius);padding:9px 11px}.toolbar .spacer{flex:1}
+    .table-wrap{overflow:auto;max-width:100%}table{width:100%;border-collapse:separate;border-spacing:0;min-width:980px;font-variant-numeric:tabular-nums}th,td{text-align:left;padding:10px 11px;border-bottom:1px solid #223348;white-space:nowrap;background:var(--panel)}th{position:sticky;top:0;background:#0e1a29;color:#91a5bd;font-size:11px;letter-spacing:.03em;text-transform:uppercase;z-index:2}th:first-child,td:first-child{position:sticky;left:0;z-index:3}.action-table th:last-child,.action-table td:last-child{position:sticky;right:0;z-index:3}.action-table th:first-child,.action-table th:last-child{z-index:4}tbody tr:hover td{background:#132235}td button{padding:6px 9px;font-size:12px;margin-right:5px}.empty-cell{padding:24px!important;text-align:center;color:var(--muted);background:var(--panel)!important}
+    .form{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:14px}.form-section{grid-column:1/-1;border:1px solid var(--line);padding:16px;background:#0d1927}.form-section h3{font-size:14px;margin:0 0 13px}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(200px,1fr));gap:13px}.form label{display:grid;gap:6px;color:#bac8d8}.form input,.form textarea,.form select{width:100%;background:#091421;color:#fff;border:1px solid #30455e;border-radius:var(--radius);padding:9px 10px}.form input[type=checkbox]{width:18px;height:18px;margin:6px 0;accent-color:var(--accent)}.form textarea{min-height:112px;resize:vertical}.full{grid-column:1/-1}.form-actions{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding-top:2px}
+    .user-form{margin-bottom:15px}.notice{border:1px solid #286755;background:#0d2425;color:#a8ded1;padding:10px 12px;margin-bottom:10px}.detail{border-top:1px solid var(--line);margin-top:18px;padding-top:18px}.detail h2{font-size:18px;margin:0 0 12px}.detail h3{font-size:14px;margin:20px 0 8px}.catalog{display:grid;grid-template-columns:repeat(3,minmax(210px,1fr));border:1px solid var(--line);margin:12px 0 18px}.catalog-item{padding:12px;border-right:1px solid var(--line);border-bottom:1px solid var(--line);background:#0d1927}.catalog-item h4{margin:0 0 5px;font-size:13px}.catalog-item p{margin:0;color:var(--muted);font-size:12px}.catalog-item .default{display:inline-block;margin-top:8px;color:#9fb8e8;font-size:11px}
+    .release-current{border:1px solid #29436e;background:#0d1927;padding:12px;margin-bottom:14px;color:#c7d5e6;overflow-wrap:anywhere}.empty{padding:24px;color:var(--muted);text-align:center;border:1px dashed var(--line-strong)}
+    @media(max-width:1180px){.metric-strip{grid-template-columns:repeat(4,1fr)}.metric:nth-child(4){border-right:0}.metric:nth-child(-n+4){border-bottom:1px solid var(--line)}.catalog{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:860px){.rail{position:static;width:auto;height:auto;padding:12px;border-right:0;border-bottom:1px solid var(--line)}.workspace{margin-left:0}.brand{padding-bottom:10px}.nav-label{display:none}.nav{display:flex;overflow-x:auto}.nav button{width:auto;white-space:nowrap}.rail-foot{display:none}.topbar{padding:14px 16px}.privacy-state{display:none}.content{padding:16px}.metric-strip{grid-template-columns:repeat(2,1fr)}.metric{border-bottom:1px solid var(--line)}.metric:nth-child(2n){border-right:0}.form,.form-grid{grid-template-columns:1fr}.full{grid-column:1}.catalog{grid-template-columns:1fr}.toolbar{align-items:stretch;flex-wrap:wrap}.search{width:100%}}
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="rail">
+      <div class="brand"><span class="brand-mark">HL</span><div class="brand-copy"><strong>HeartLink</strong><small>Self-hosted cloud</small></div></div>
+      <div class="nav-label">管理</div>
+      <nav class="nav" aria-label="控制台页面">
+        <button id="usersTab" class="active" type="button">用户与同步</button>
+        <button id="settingsTab" type="button">云端设置</button>
+        <button id="auditTab" type="button">审计记录</button>
+      </nav>
+      <div class="rail-foot">
+        <div class="network-state"><span class="status-dot"></span><span>业务内网访问</span></div>
+        <form action="/logout" method="post"><button class="secondary" type="submit">退出控制台</button></form>
+      </div>
+    </aside>
+    <main class="workspace">
+      <header class="topbar">
+        <h1 id="pageTitle">用户与同步</h1>
+        <div class="topbar-spacer"></div>
+        <div class="privacy-state">零知识同步边界已启用，后台仅查看运行状态与密文元数据</div>
+      </header>
+      <div class="content">
+        <section class="metric-strip" aria-label="云端运行概览">
+          <div class="metric"><div class="metric-label">用户</div><div id="usersMetric" class="metric-value">暂无</div></div>
+          <div class="metric"><div class="metric-label">在线设备</div><div id="onlineDevicesMetric" class="metric-value">暂无</div></div>
+          <div class="metric"><div class="metric-label">可信设备</div><div id="trustedDevicesMetric" class="metric-value">暂无</div></div>
+          <div class="metric"><div class="metric-label">撤销历史</div><div id="revokedDevicesMetric" class="metric-value">暂无</div></div>
+          <div class="metric"><div class="metric-label">账号登录令牌</div><div id="sessionsMetric" class="metric-value">暂无</div></div>
+          <div class="metric"><div class="metric-label">加密记录</div><div id="recordsMetric" class="metric-value">暂无</div></div>
+          <div class="metric"><div class="metric-label">密文容量</div><div id="bytesMetric" class="metric-value">暂无</div></div>
+        </section>
+        <div class="context-note"><strong>数据口径</strong><span>在线设备指 90 秒内完成心跳的客户端。账号登录令牌不是 SSH、SFTP 或远程桌面会话。加密记录数量也不等于服务器数量。</span></div>
+
+        <section id="usersPanel" class="panel">
+          <div class="panel-head"><h2>用户与同步</h2><span id="userStatus" class="muted status" aria-live="polite"></span></div>
+          <div class="panel-body">
+            <div class="toolbar">
+              <input id="userSearch" class="search" type="search" placeholder="搜索邮箱、手机或用户 ID" aria-label="搜索用户">
+              <div class="spacer"></div><button id="toggleAddUser" type="button">添加账号</button>
+            </div>
+            <form id="userForm" class="form user-form hidden">
+              <section class="form-section"><h3>创建云端账号</h3><div class="form-grid">
+                <label><span>邮箱</span><input name="email" type="email" maxlength="254" autocomplete="off" required></label>
+                <label><span>手机（国际格式）</span><input name="phone" placeholder="+8613800000000" maxlength="20" autocomplete="off" required></label>
+                <label><span>初始密码（至少 12 个字符）</span><input name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
+                <div class="form-actions"><button type="submit">创建账号</button><button id="cancelAddUser" class="secondary" type="button">取消</button></div>
+              </div></section>
+            </form>
+            <div class="table-wrap"><table class="action-table"><thead><tr><th>邮箱</th><th>手机</th><th>外部身份</th><th>用户 ID</th><th>在线设备</th><th>可信设备</th><th>撤销历史</th><th>待远程清空</th><th>账号令牌</th><th>加密记录</th><th>密文容量</th><th>最近同步</th><th>注册时间</th><th>操作</th></tr></thead><tbody id="usersBody"><tr><td class="empty-cell" colspan="14">正在加载用户与同步状态…</td></tr></tbody></table></div>
+            <section id="userDetail" class="detail hidden"></section>
+          </div>
+        </section>
+
+        <section id="settingsPanel" class="panel hidden">
+          <div class="panel-head"><h2>云端设置</h2><span id="saveStatus" class="muted status" aria-live="polite"></span></div>
+          <div class="panel-body"><form id="settingsForm" class="form">
+            <section class="form-section"><h3>账户与存储</h3><div class="form-grid">
+              <label><span>开放注册</span><input name="registration_enabled" type="checkbox"></label>
+              <label><span>单用户密文配额（MiB）</span><input name="per_user_quota_mib" type="number" min="16" max="4096"></label>
+            </div></section>
+            <section class="form-section"><h3>邮件验证码</h3><div class="form-grid">
+              <label><span>启用 SMTP</span><input name="smtp_enabled" type="checkbox"></label>
+              <label><span>SMTP 主机</span><input name="smtp_host" maxlength="255"></label>
+              <label><span>SMTP 端口</span><input name="smtp_port" type="number" min="1" max="65535"></label>
+              <label><span>SMTP 用户名</span><input name="smtp_username" maxlength="254"></label>
+              <label><span>SMTP 密码</span><input name="smtp_password" type="password" maxlength="1024"></label>
+              <label><span>发件人</span><input name="smtp_from" maxlength="254"></label>
+              <label><span>STARTTLS</span><input name="smtp_starttls" type="checkbox"></label>
+            </div></section>
+            <section class="form-section"><h3>短信验证码</h3><div class="form-grid">
+              <label><span>启用短信验证码</span><input name="sms_enabled" type="checkbox"></label>
+              <label><span>短信服务</span><select name="sms_provider"><option value="aliyun">阿里云短信（中国大陆）</option><option value="webhook">兼容 Webhook</option></select></label>
+              <label><span>阿里云 AccessKey ID</span><input name="aliyun_sms_access_key_id" type="password" maxlength="256"></label>
+              <label><span>阿里云 AccessKey Secret</span><input name="aliyun_sms_access_key_secret" type="password" maxlength="512"></label>
+              <label><span>短信签名 SignName</span><input name="aliyun_sms_sign_name" maxlength="12" placeholder="已审核签名，不含括号"></label>
+              <label><span>验证码模板 TemplateCode</span><input name="aliyun_sms_template_code" maxlength="64" placeholder="SMS_123456789"></label>
+              <label class="full"><span>兼容 Webhook（必须 HTTPS）</span><input name="sms_webhook_url" maxlength="2048"></label>
+              <label><span>Webhook Token</span><input name="sms_webhook_token" type="password" maxlength="1024"></label>
+              <div class="full muted">阿里云验证码模板需包含变量 <b>${code}</b>。建议使用仅授予 <b>dysms:SendSms</b> 的 RAM 用户。</div>
+            </div></section>
+            <div class="form-actions"><button type="submit">保存设置</button></div>
+          </form></div>
+        </section>
+
+
+
+        <section id="auditPanel" class="panel hidden">
+          <div class="panel-head"><h2>审计记录</h2></div>
+          <div class="panel-body"><div class="table-wrap"><table><thead><tr><th>时间</th><th>操作</th><th>目标</th></tr></thead><tbody id="auditBody"><tr><td class="empty-cell" colspan="3">打开页面后读取审计记录</td></tr></tbody></table></div></div>
+        </section>
+      </div>
+    </main>
+  </div>
+  <script>
+    const csrf="__CSRF__";
+    const $=selector=>document.querySelector(selector);
+    const fmt=value=>value?new Date(value*1000).toLocaleString():"暂无";
+    const bytes=value=>value<1048576?(value/1024).toFixed(1)+" KiB":(value/1048576).toFixed(2)+" MiB";
+    let allUsers=[];
+
+    async function requestJson(url,options={}){
+      options.headers={...(options.headers||{}),"X-HeartLink-CSRF":csrf};
+      const response=await fetch(url,options);
+      if(!response.ok){
+        let message="请求失败";
+        try{message=(await response.json()).message||message}catch(_error){}
+        throw new Error(message);
+      }
+      return response.json();
+    }
+
+    function makeCell(value){const cell=document.createElement("td");cell.textContent=value;return cell}
+    function showTableState(body,message,columns){const row=document.createElement("tr"),cell=document.createElement("td");cell.className="empty-cell";cell.colSpan=columns;cell.textContent=message;row.append(cell);body.replaceChildren(row)}
+
+    function renderUsers(){
+      const query=$("#userSearch").value.trim().toLowerCase();
+      const rows=allUsers.filter(user=>[user.email,user.phone,user.id].some(value=>(value||"").toLowerCase().includes(query)));
+      if(!rows.length){showTableState($("#usersBody"),query?"没有匹配的账号":"尚无云端账号",14);return}
+      $("#usersBody").replaceChildren(...rows.map(user=>{
+        const row=document.createElement("tr");
+        [user.email,user.phone||"暂无",user.external_identity_count?user.external_identity_count+" 个":"未绑定",user.id,user.online_device_count,user.trusted_device_count,user.revoked_device_count,user.pending_remote_wipe_count,user.active_session_count,user.encrypted_snapshot_count,bytes(user.encrypted_bytes),fmt(user.last_sync_at),fmt(user.created_at)].forEach(value=>row.append(makeCell(value)));
+        const action=document.createElement("td");
+        const detail=document.createElement("button");detail.className="secondary";detail.type="button";detail.textContent="详情";detail.onclick=()=>loadUserDetails(user);
+        const remove=document.createElement("button");remove.className="danger";remove.type="button";remove.textContent="删除";remove.onclick=()=>deleteUser(user);
+        action.append(detail,remove);row.append(action);return row;
+      }));
+    }
+
+    async function loadUsers(){
+      allUsers=await requestJson("/api/overview");
+      const sum=key=>allUsers.reduce((total,item)=>total+item[key],0);
+      $("#usersMetric").textContent=allUsers.length;
+      $("#onlineDevicesMetric").textContent=sum("online_device_count");
+      $("#trustedDevicesMetric").textContent=sum("trusted_device_count");
+      $("#revokedDevicesMetric").textContent=sum("revoked_device_count");
+      $("#sessionsMetric").textContent=sum("active_session_count");
+      $("#recordsMetric").textContent=sum("encrypted_snapshot_count");
+      $("#bytesMetric").textContent=bytes(sum("encrypted_bytes"));
+      renderUsers();
+    }
+
+    async function deleteUser(user){
+      const typed=prompt("删除会永久清除该账号、设备、会话及同步密文。请输入完整邮箱确认：\n"+user.email);
+      if(typed===null)return;
+      $("#userStatus").textContent="正在删除...";
+      try{
+        await requestJson("/api/users/"+encodeURIComponent(user.id),{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({confirm_email:typed})});
+        $("#userStatus").textContent="账号已删除并写入审计";await loadUsers();
+      }catch(error){$("#userStatus").textContent=error.message}
+    }
+
+    function appendTable(parent,title,heads,rows){
+      const heading=document.createElement("h3");heading.textContent=title;
+      const wrap=document.createElement("div");wrap.className="table-wrap";
+      const table=document.createElement("table"),thead=document.createElement("thead"),headRow=document.createElement("tr"),body=document.createElement("tbody");
+      heads.forEach(value=>{const cell=document.createElement("th");cell.textContent=value;headRow.append(cell)});
+      if(rows.length){rows.forEach(values=>{const row=document.createElement("tr");values.forEach(value=>row.append(makeCell(value)));body.append(row)})}else{const row=document.createElement("tr"),cell=document.createElement("td");cell.className="empty-cell";cell.colSpan=heads.length;cell.textContent="暂无记录";row.append(cell);body.append(row)}
+      thead.append(headRow);table.append(thead,body);wrap.append(table);parent.append(heading,wrap);
+    }
+
+    async function loadUserDetails(user){
+      const panel=$("#userDetail"),state=document.createElement("div");state.className="empty";state.textContent="正在读取账户明细…";panel.classList.remove("hidden");panel.replaceChildren(state);
+      let details;try{details=await requestJson("/api/users/"+encodeURIComponent(user.id)+"/details")}catch(error){state.textContent="账户明细读取失败："+error.message;return}panel.replaceChildren();
+      const heading=document.createElement("h2");heading.textContent=user.email+" · 账户明细";
+      const notice=document.createElement("div");notice.className="notice";notice.textContent=details.zero_knowledge_notice;
+      const metadata=document.createElement("div");metadata.className="notice";metadata.textContent=details.settings_metadata_notice;
+      const catalogTitle=document.createElement("h3");catalogTitle.textContent="客户端可选同步内容";
+      const catalog=document.createElement("div");catalog.className="catalog";
+      details.sync_content_catalog.forEach(item=>{const card=document.createElement("article");card.className="catalog-item";const title=document.createElement("h4");title.textContent=item.category;const copy=document.createElement("p");copy.textContent=item.included_data;const state=document.createElement("span");state.className="default";state.textContent=item.default_enabled?"默认同步":"默认关闭，用户可开启";card.append(title,copy,state);catalog.append(card)});
+      panel.append(heading,notice,metadata,catalogTitle,catalog);
+      appendTable(panel,"外部账号身份",["服务商","登录标识","绑定时间","最近验证"],details.external_identities.map(identity=>[identity.provider.toUpperCase(),identity.display_identifier,fmt(identity.created_at),fmt(identity.updated_at)]));
+      appendTable(panel,"客户端设备（包含撤销历史）",["设备名","平台","状态","远程清空","设备 ID","最近心跳","首次登记","撤销时间"],details.devices.map(device=>[device.name,device.platform,device.revoked?"已撤销":device.online?"在线":"离线",device.remote_control_enabled?"已启用":"旧客户端未启用",device.id,fmt(device.last_seen_at),fmt(device.created_at),fmt(device.revoked_at)]));
+      appendTable(panel,"有效云端账号登录令牌（不是 SSH/RDP 会话）",["令牌引用","设备","平台","设备 ID","登录时间","到期时间"],details.sessions.map(session=>[session.session_reference,session.device_name||"旧会话或未绑定",session.device_platform||"暂无",session.device_id||"暂无",fmt(session.created_at),fmt(session.expires_at)]));
+      appendTable(panel,"远程清空并退出指令",["指令 ID","设备 ID","状态","签发时间","首次下发","客户端确认"],details.device_commands.map(command=>[command.command_id,command.device_id,command.acknowledged_at?"已执行并确认":command.delivered_at?"已下发，等待确认":"等待设备上线",fmt(command.issued_at),fmt(command.delivered_at),fmt(command.acknowledged_at)]));
+      appendTable(panel,"端到端加密记录元数据（不可查看或修改明文）",["含义","协议类型","数据版本","记录 ID","来源设备","修订","状态","大小","更新时间"],details.encrypted_snapshots.map(record=>[record.kind_label,record.kind,record.data_version,record.record_id,record.device_id,record.revision,record.deleted?"删除墓碑":"有效",bytes(record.encrypted_bytes),fmt(record.updated_at)]));
+      panel.scrollIntoView({block:"start"});
+    }
+
+    async function loadSettings(){
+      const value=await requestJson("/api/settings"),form=$("#settingsForm");
+      for(const [key,item] of Object.entries(value)){if(!form.elements[key])continue;if(form.elements[key].type==="checkbox")form.elements[key].checked=!!item;else form.elements[key].value=item??""}
+      form.elements.smtp_password.placeholder=value.smtp_password_configured?"已配置，留空保持":"未配置";
+      form.elements.sms_webhook_token.placeholder=value.sms_webhook_token_configured?"已配置，留空保持":"未配置";
+      form.elements.aliyun_sms_access_key_id.placeholder=value.aliyun_sms_access_key_id_configured?"已配置，留空保持":"未配置";
+      form.elements.aliyun_sms_access_key_secret.placeholder=value.aliyun_sms_access_key_secret_configured?"已配置，留空保持":"未配置";
+    }
+
+    const auditLabel=value=>({"device.revoke":"用户撤销设备","device.replace.revoke":"同名客户端登记替换旧设备","device.wipe.delivered":"远程清空指令已下发","device.wipe.acknowledged":"远程清空指令已确认","settings.update":"云端设置已修改","release.publish":"版本发布成功","release.publish.pending":"版本发布处理中","release.publish.failed":"版本发布失败","user.create":"后台创建账号","user.delete":"后台删除账号","account.create":"后台创建账号","account.delete":"后台删除账号"}[value]||value);
+    async function loadAudit(){const rows=await requestJson("/api/audit");if(!rows.length){showTableState($("#auditBody"),"暂无审计记录",3);return}$("#auditBody").replaceChildren(...rows.map(item=>{const row=document.createElement("tr");[fmt(item.created_at),auditLabel(item.action),item.target].forEach(value=>row.append(makeCell(value)));return row}))}
+
+    const pageTitles={users:"用户与同步",settings:"云端设置",release:"版本发布",audit:"审计记录"};
+    function showPage(name){
+      for(const page of Object.keys(pageTitles)){const active=page===name;$("#"+page+"Panel").classList.toggle("hidden",!active);$("#"+page+"Tab").classList.toggle("active",active);$("#"+page+"Tab").setAttribute("aria-current",active?"page":"false")}
+      $("#pageTitle").textContent=pageTitles[name];
+      if(name==="settings")loadSettings().catch(error=>$("#saveStatus").textContent=error.message);
+      if(name==="audit")loadAudit().catch(error=>showTableState($("#auditBody"),"审计记录读取失败："+error.message,3));
+    }
+
+    $("#usersTab").onclick=()=>showPage("users");$("#settingsTab").onclick=()=>showPage("settings");$("#releaseTab").onclick=()=>showPage("release");$("#auditTab").onclick=()=>showPage("audit");
+    $("#userSearch").oninput=renderUsers;
+    $("#toggleAddUser").onclick=()=>{$("#userForm").classList.remove("hidden");$("#userForm").elements.email.focus()};
+    $("#cancelAddUser").onclick=()=>{$("#userForm").reset();$("#userForm").classList.add("hidden")};
+    $("#userForm").onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;$("#userStatus").textContent="正在创建...";try{await requestJson("/api/users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({email:form.elements.email.value,phone:form.elements.phone.value,password:form.elements.password.value})});form.reset();form.classList.add("hidden");$("#userStatus").textContent="账号已创建并写入审计";await loadUsers()}catch(error){$("#userStatus").textContent=error.message}};
+    $("#settingsForm").onsubmit=async event=>{event.preventDefault();const form=event.currentTarget;const value={registration_enabled:form.elements.registration_enabled.checked,smtp_enabled:form.elements.smtp_enabled.checked,smtp_host:form.elements.smtp_host.value,smtp_port:+form.elements.smtp_port.value,smtp_username:form.elements.smtp_username.value,smtp_password:form.elements.smtp_password.value,smtp_password_configured:false,smtp_from:form.elements.smtp_from.value,smtp_starttls:form.elements.smtp_starttls.checked,sms_enabled:form.elements.sms_enabled.checked,sms_provider:form.elements.sms_provider.value,sms_webhook_url:form.elements.sms_webhook_url.value,sms_webhook_token:form.elements.sms_webhook_token.value,sms_webhook_token_configured:false,aliyun_sms_access_key_id:form.elements.aliyun_sms_access_key_id.value,aliyun_sms_access_key_id_configured:false,aliyun_sms_access_key_secret:form.elements.aliyun_sms_access_key_secret.value,aliyun_sms_access_key_secret_configured:false,aliyun_sms_sign_name:form.elements.aliyun_sms_sign_name.value,aliyun_sms_template_code:form.elements.aliyun_sms_template_code.value,per_user_quota_mib:+form.elements.per_user_quota_mib.value};$("#saveStatus").textContent="正在保存...";try{await requestJson("/api/settings",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify(value)});$("#saveStatus").textContent="设置已保存并写入审计";await loadSettings()}catch(error){$("#saveStatus").textContent=error.message}};
+    loadUsers().catch(error=>{$("#userStatus").textContent=error.message;showTableState($("#usersBody"),"用户与同步状态读取失败",14)});
+  </script>
+</body>
+</html>
