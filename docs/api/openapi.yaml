@@ -1,0 +1,247 @@
+openapi: 3.1.0
+info:
+  title: HeartLink Opaque Sync API
+  version: 1.0.0
+  description: The service authenticates accounts/devices and stores only client-produced ciphertext.
+servers:
+  - url: https://sync.example.com
+paths:
+  /health:
+    get:
+      responses:
+        '200':
+          description: Healthy and protocol-compatible
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Health' }
+  /v1/auth/register:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '201': { $ref: '#/components/responses/Session' }
+        '403': { description: Public registration is disabled }
+        '409': { description: Account exists }
+  /v1/auth/login:
+    post:
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '200': { $ref: '#/components/responses/Session' }
+        '401': { description: Invalid credentials }
+  /v1/auth/session:
+    delete:
+      security: [{ bearerAuth: [] }]
+      responses:
+        '204': { description: Current bearer session revoked }
+  /v1/devices:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - $ref: '#/components/parameters/DeviceIdentity'
+      responses:
+        '200':
+          description: Account device list
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Device' }
+    post:
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RegisterDevice' }
+      responses:
+        '204': { description: Device registered or reactivated }
+  /v1/devices/{device_id}:
+    delete:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - $ref: '#/components/parameters/DeviceIdentity'
+      requestBody:
+        required: true
+        description: The cloud account password is required for every device revocation. Normal sign-out uses DELETE /v1/auth/session instead.
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RevokeDevice' }
+      responses:
+        '204': { description: Device revoked }
+        '401': { description: Account password is missing or invalid }
+        '404': { description: Device missing or already revoked }
+  /v1/devices/{device_id}/control:
+    get:
+      security: [{ deviceControl: [] }]
+      description: Polls the separate device-control channel. It remains available after all bearer sessions for a revoked device have been invalidated. A command is returned until the client acknowledges completing it.
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Current revocation state and any pending command
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/DeviceControlStatus' }
+        '401': { description: Device control token is missing or invalid }
+    post:
+      security: [{ deviceControl: [] }]
+      description: Idempotently acknowledges that the client deleted its local HeartLink data and ended its cloud session.
+      parameters:
+        - name: device_id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AcknowledgeDeviceControl' }
+      responses:
+        '204': { description: Command acknowledged, including a repeated acknowledgement }
+        '401': { description: Device control token is missing or invalid }
+        '404': { description: Command does not belong to this device }
+  /v1/sync/push:
+    post:
+      security: [{ bearerAuth: [] }]
+      description: Creates one ciphertext revision or preserves and reports a stale conflict.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Push' }
+      responses:
+        '200': { description: Revision accepted }
+        '403': { description: Device missing or revoked }
+        '409': { description: Revision conflict }
+  /v1/sync/pull:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - name: since
+          in: query
+          schema: { type: integer, minimum: 0 }
+      responses:
+        '200':
+          description: Incremental ciphertext revisions including tombstones
+components:
+  parameters:
+    DeviceIdentity:
+      name: x-heartlink-device-id
+      in: header
+      required: false
+      description: Stable current-device UUID used for presence and self-revocation.
+      schema: { type: string, format: uuid }
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+    deviceControl:
+      type: apiKey
+      in: header
+      name: x-heartlink-device-control
+      description: Client-generated high-entropy device control token. The service stores only its BLAKE3 digest and never returns it.
+  schemas:
+    Health:
+      type: object
+      required: [status, protocol_version]
+      properties:
+        status: { type: string, const: ok }
+        protocol_version: { type: integer, const: 1 }
+    Credentials:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email, maxLength: 254 }
+        password: { type: string, minLength: 12, maxLength: 1024 }
+    Session:
+      type: object
+      required: [token, user_id, expires_at]
+      properties:
+        token: { type: string }
+        user_id: { type: string, format: uuid }
+        expires_at: { type: integer, description: Unix timestamp in seconds }
+    RegisterDevice:
+      type: object
+      required: [device_id, name, platform]
+      properties:
+        device_id: { type: string, format: uuid }
+        name: { type: string, maxLength: 120 }
+        platform: { type: string, maxLength: 40 }
+        control_token:
+          type: string
+          minLength: 32
+          maxLength: 256
+          description: Optional only for legacy compatibility. New clients must generate and persist a distinct high-entropy value.
+    RevokeDevice:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string, minLength: 1, maxLength: 1024 }
+    Device:
+      type: object
+      required: [device_id, name, platform, revoked, created_at, last_seen_at, online, remote_control_enabled]
+      properties:
+        device_id: { type: string, format: uuid }
+        name: { type: string }
+        platform: { type: string }
+        revoked: { type: boolean }
+        created_at: { type: integer }
+        last_seen_at: { type: integer }
+        online: { type: boolean }
+        remote_control_enabled:
+          type: boolean
+          description: Whether durable remote wipe-and-logout delivery is available for this device.
+    DeviceControlStatus:
+      type: object
+      required: [revoked, command]
+      properties:
+        revoked: { type: boolean }
+        command:
+          oneOf:
+            - type: 'null'
+            - $ref: '#/components/schemas/DeviceControlCommand'
+    DeviceControlCommand:
+      type: object
+      required: [command_id, action, issued_at]
+      properties:
+        command_id: { type: string, format: uuid }
+        action: { type: string, const: wipe_local_data_and_logout }
+        issued_at: { type: integer, description: Unix timestamp in seconds }
+    AcknowledgeDeviceControl:
+      type: object
+      required: [command_id]
+      properties:
+        command_id: { type: string, format: uuid }
+    Push:
+      type: object
+      required: [record]
+      properties:
+        record:
+          type: object
+          required: [id, kind, ciphertext, data_version, base_revision, deleted, device_id]
+          properties:
+            id: { type: string, format: uuid }
+            kind: { type: string }
+            ciphertext: { type: string, maxLength: 1048576 }
+            data_version: { type: integer, minimum: 1 }
+            base_revision: { type: integer, minimum: 0 }
+            deleted: { type: boolean }
+            device_id: { type: string, format: uuid }
+  responses:
+    Session:
+      description: Authenticated 30-day bearer session
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Session' }
