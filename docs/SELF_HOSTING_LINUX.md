@@ -6,7 +6,9 @@ HeartLink 云端是 Linux 通用的 Rust HTTP 服务，负责账户注册/登录
 
 生产数据库固定推荐 **MySQL 8.4.10 LTS**。部署文件钉住完整镜像版本 `mysql:8.4.10`，避免 `latest` 或浮动标签在无人确认时跨版本升级。
 
-## 一、与你现有服务器匹配的架构
+## 一、统一 IP 端点与可选反向代理
+
+HeartLink 云端不区分局域网和公网安装模式，也不要求域名。业务 API 固定使用发布 IP 的 `8787` 端口，管理面板固定使用发布 IP 的 `8789` 端口。需要 HTTPS 时，由用户选择 IP 或域名作为外部地址，并自行配置证书、WAF 和反向代理。下面的雷池拓扑只是一种可选部署方式。
 
 ```text
 HeartLink 客户端
@@ -30,7 +32,7 @@ HeartLink 客户端
 - 健康检查使用 `GET /health`；
 - 不缓存 `/v1/*`，不启用会改写 JSON 正文的功能。
 
-客户端“自托管云”地址填写 WAF 的公网 HTTPS 地址，例如 `https://sync.example.com`，不要填写 MySQL 地址或业务机的 `8787` 地址。
+客户端“自托管云”可以填写可信私网的 `http://IP:8787`，也可以填写用户自管网关提供的 `https://IP`、`https://IP:PORT` 或域名地址。`https://IP` 的证书必须包含对应 IP 的 Subject Alternative Name，并受客户端系统信任。不要填写 MySQL 地址。
 
 ## 二、1Panel 已有 MySQL 容器：推荐安装方式
 
@@ -92,8 +94,9 @@ HEARTLINK_DOCKER_NETWORK=1panel-network-name
 HEARTLINK_HANDSHAKE_KEY_PATH=./secrets/cloud-handshake.key
 HEARTLINK_HANDSHAKE_KEY_ID=self-hosted-cloud-v1
 
-# 必须是前置 WAF 能访问、但不会直接暴露公网的业务机 IP
+# 选择需要发布业务 API 和管理面板的 IPv4 地址；0.0.0.0 表示所有 IPv4 接口
 HEARTLINK_PUBLISH_IP=10.0.0.20
+HEARTLINK_PANEL_PUBLISH_IP=10.0.0.20
 HEARTLINK_REGISTRATION_ENABLED=true
 
 # 账户/解锁密码找回。至少配置一种发送通道，并使用不少于 32 个字符的独立 pepper。
@@ -122,7 +125,7 @@ curl --fail http://10.0.0.20:8787/health
 
 如果同步容器提示数据库连接失败，先在共享网络内验证容器名、端口和账户，不要通过开放公网 `3306` 绕过网络配置。
 
-### 4. 配置雷池和防火墙
+### 4. 可选：配置雷池和防火墙
 
 1. 雷池新增站点，公网域名指向前置服务器。
 2. 上游地址设为 `http://10.0.0.20:8787`，替换成真实业务机内网 IP。
@@ -156,7 +159,7 @@ docker compose --env-file infra/docker/.env \
 curl --fail http://127.0.0.1:8787/health
 ```
 
-默认只把 `8787` 绑定到 `127.0.0.1`。本机使用 Caddy/Nginx 时可保持该值；WAF 位于另一台机器时，把 `HEARTLINK_PUBLISH_IP` 改为业务机内网 IP，并用防火墙限制 WAF 源 IP。
+默认将 `8787` 和 `8789` 绑定到 `0.0.0.0`，因此可通过服务器 IP 访问。若只允许某块网卡、回环地址或反向代理访问，请分别设置 `HEARTLINK_PUBLISH_IP` 和 `HEARTLINK_PANEL_PUBLISH_IP`，并使用防火墙限制来源。域名和 TLS 不由 Compose 管理。
 
 首次创建自己的账户后，建议关闭开放注册：
 
@@ -213,6 +216,8 @@ curl --fail http://127.0.0.1:8787/health
 | `HEARTLINK_DATABASE_USER` | `heartlink` | 独立应用账户。 |
 | `HEARTLINK_DATABASE_PASSWORD` | 无，必填 | 应用账户密码。拆分变量会安全编码特殊字符。 |
 | `HEARTLINK_BIND` | `127.0.0.1:8787` | HTTP 监听地址；容器内使用 `0.0.0.0:8787`。 |
+| `HEARTLINK_PUBLISH_IP` | `0.0.0.0` | Compose 发布业务端口 `8787` 的 IPv4 地址。 |
+| `HEARTLINK_PANEL_PUBLISH_IP` | `0.0.0.0` | Compose 发布管理面板端口 `8789` 的 IPv4 地址。 |
 | `HEARTLINK_SERVICE_ROLE` | `cloud` | 自托管同步固定使用 `cloud`；官方更新进程使用 `update`。 |
 | `HEARTLINK_HANDSHAKE_KEY_FILE` | 无，必填 | 服务器独占的 Base64URL Ed25519 私钥种子文件。 |
 | `HEARTLINK_HANDSHAKE_KEY_ID` | `self-hosted-v1` | 公钥轮换标识；修改私钥时必须同步发布新的客户端信任配置。 |
@@ -228,7 +233,7 @@ curl --fail http://127.0.0.1:8787/health
 ## 六、客户端注册、登录与同步
 
 1. 打开 HeartLink 的“数据与同步”，选择“自托管云”。
-2. 填入雷池公开的 HTTPS 地址，以及部署时生成命令输出的 Ed25519 身份公钥。
+2. 填入基于 IP 或域名的云端地址，以及部署时生成命令输出的 Ed25519 身份公钥。可用形式包括可信私网 `http://IP:8787`，以及证书有效的 `https://IP`、`https://IP:PORT` 或域名地址。
 3. 首次使用选择“注册”；填写邮箱、国际格式手机号码（例如 `+8613800138000`）以及至少 12 个字符的账户密码。之后使用邮箱和密码登录。
 4. 首次点击云端同步时设置独立的“云端同步密码”，至少 16 个字符。它只在客户端用于 Argon2id 派生和 XChaCha20-Poly1305 加密，不会上传；首次同步成功后由当前 Windows 用户的 DPAPI 保险库保存，后续变更会静默同步，不再反复要求输入。
 5. 点击“立即同步”。首次本地与云端同时有数据时必须明确选择保留本地或使用云端，不会静默覆盖。
@@ -238,7 +243,7 @@ curl --fail http://127.0.0.1:8787/health
 
 新版客户端登记设备时会额外生成一个独立高熵设备控制令牌；服务端只保存其摘要。撤销设备后，服务端立即使该设备的账号登录令牌失效，并持久保存“清空本机 HeartLink 数据并退出账号”指令。在线设备会立即领取，离线设备下次启动或恢复网络后领取；客户端本地执行完成前，同一指令会持续返回，避免网络响应丢失。后台只记录设备 ID、指令 ID 和签发/下发/确认时间，不记录设备控制令牌、密文正文或本地数据。旧客户端没有登记设备控制令牌时，服务端仍会立即撤销其云端访问，但无法远程确认该旧客户端已经清空本机数据；后台会明确标记为“旧客户端未启用远程清空”。
 
-HTTP 仅允许在用户显式启用后连接 `localhost` 或 RFC 1918 私网 IP；公网域名必须使用 HTTPS，客户端不会跳过证书校验。
+HTTP 仅允许在用户显式启用后连接 `localhost` 或 RFC 1918 私网 IP。HTTPS 可以使用 IP 或域名，但证书必须与输入地址匹配并受系统信任；客户端不会跳过证书校验。公网明文 HTTP 仍会被拒绝。
 
 ### 验证码发送服务
 
