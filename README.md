@@ -1,58 +1,216 @@
-# HeartLink Self-Hosted Cloud
+<!-- BEAUTIFIED -->
 
-HeartLink 自部署托管云用于账号、设备、找回、管理后台和端到端密文同步。服务端只保存不透明密文，不代理 SSH、SFTP 或 RDP 流量，也不会接收客户端主密码、Vault 密钥或服务器明文凭据。
+<p align="center">
+  中文 · <a href="README.en.md">English</a>
+</p>
 
-此仓库只包含 AGPL 自部署云和 Apache-2.0 协议模型。闭源桌面客户端、官方云运营模块、软件更新签名与安装包下发模块均不在仓库和自部署镜像中。
+<h1 align="center">HeartLink Self-Hosted Cloud</h1>
 
-## 一键安装
+<p align="center">
+  <strong>用于账户、设备管理与端到端密文同步的 HeartLink 自部署云端。</strong>
+  <br />
+  <em>本地掌控 · 不透明密文存储 · Linux 一键部署</em>
+</p>
 
-支持 Debian、Ubuntu、RHEL、Rocky Linux、AlmaLinux、CentOS、Fedora、openSUSE、SLES、Arch Linux 的 x86_64/arm64 主机。脚本会安装缺失的 Docker Engine 与 Compose 插件，并在服务器本机从源码构建仅含自部署特性的镜像。
+<p align="center">
+  <a href="#快速开始"><img src="https://img.shields.io/badge/快速开始-16A34A?style=for-the-badge" alt="Quick Start" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/许可证-AGPL--3.0--only-EAB308?style=for-the-badge" alt="License" /></a>
+</p>
 
-局域网模式：
+<p align="center">
+  <a href="https://github.com/HEARTHROBXD/HeartLink-Self-Hosted/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/HEARTHROBXD/HeartLink-Self-Hosted/ci.yml?branch=main&style=flat&label=CI" alt="Build Status" /></a>
+  <img src="https://img.shields.io/badge/Rust_1.85+-000000?style=flat&logo=rust&logoColor=white" alt="Rust" />
+  <img src="https://img.shields.io/badge/Axum_0.8-7C3AED?style=flat" alt="Axum" />
+  <img src="https://img.shields.io/badge/MySQL_8.4-4479A1?style=flat&logo=mysql&logoColor=white" alt="MySQL" />
+  <img src="https://img.shields.io/badge/Docker_Compose-2496ED?style=flat&logo=docker&logoColor=white" alt="Docker Compose" />
+</p>
+
+## 功能特性
+
+| 功能 | 说明 |
+|---|---|
+| 不透明密文同步 | 服务端保存客户端生成的版本化密文，并保留冲突版本；主密码、Vault 密钥和服务器明文凭据不会上传。 |
+| 账户与设备管理 | 提供注册、认证、会话、设备登记、吊销和独立设备控制通道。 |
+| 管理面板 | 单独的管理端口用于用户、设备、找回设置和审计管理。 |
+| 云端身份校验 | 安装时生成 Ed25519 身份密钥，并输出需要通过可信渠道录入客户端的公钥。 |
+| 可选 HTTPS 网关 | Caddy 使用两个独立域名为业务端点和管理面板自动配置 TLS。 |
+| 可演进的协议边界 | API 固定在 `/v1`，数据库迁移只前进，共享模型与同步协议作为独立包维护。 |
+
+> [!IMPORTANT]
+> 本仓库不包含 HeartLink 桌面客户端、官方云运营模块或软件更新下发功能。SSH、SFTP 和 RDP 流量由客户端直连目标服务器，不经过本云端。
+
+## 快速开始
+
+### 前置条件
+
+- 一台 `x86_64` 或 `arm64` Linux 主机，并具有 root 权限。
+- 支持 Debian、Ubuntu、RHEL、Rocky Linux、AlmaLinux、CentOS、Fedora、openSUSE、SLES 和 Arch Linux。
+- 公网 HTTPS 模式还需要两个已解析到该主机的域名，以及可用的 `80/443` 端口。
+
+### 局域网安装
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | sudo bash
 ```
 
-公网 HTTPS 模式（两个域名必须已解析到服务器，80/443 端口可用）：
+该模式将业务端点发布到局域网，并把管理面板绑定在 `127.0.0.1:8789`。局域网 HTTP 端点不应暴露到公网。
+
+### 公网 HTTPS 安装
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | \
   sudo bash -s -- install \
-  --cloud-domain cloud.example.com \
-  --panel-domain panel.example.com \
-  --email admin@example.com
+    --cloud-domain cloud.example.com \
+    --panel-domain panel.example.com \
+    --email admin@example.com
 ```
 
-安装完成后，终端和 `/opt/heartlink-cloud/install-result.txt` 会给出：
+### 保存安装结果
 
-- 客户端云端地址；
-- 管理面板地址和随机访问密码；
-- 云端 Ed25519 身份公钥。
+安装结束时，终端和 `/opt/heartlink-cloud/install-result.txt` 会显示云端地址、面板地址、随机管理密码、云端 Ed25519 身份公钥，以及局域网模式下的 SSH 隧道命令。该文件仅允许 root 读取。
 
-结果文件和数据库密码文件仅允许 root 读取。未配置域名时，管理面板只绑定 `127.0.0.1:8789`，可通过安装结果中给出的 SSH 隧道访问；局域网 HTTP 端点不能用于公网。
+## 使用方法
 
-## 运维
+### 查看状态
 
 ```bash
 sudo /opt/heartlink-cloud/current/install.sh status
+```
+
+### 原子升级
+
+```bash
 sudo /opt/heartlink-cloud/current/install.sh upgrade
+```
+
+升级会构建新的只增版本目录并原子切换 `current`，保留数据库卷、配置和原云端身份私钥。
+
+### 卸载
+
+```bash
 sudo /opt/heartlink-cloud/current/install.sh uninstall
 ```
 
-普通卸载保留数据库卷、身份私钥和配置。只有显式增加 `--purge-data` 才会永久删除这些数据。升级使用新的只增版本目录并原子切换 `current`，原身份私钥和数据库卷保持不变。
+普通卸载保留数据。只有显式添加 `--purge-data` 才会永久删除 Docker 数据卷、身份密钥和配置。
 
-## 开发验证
+## 架构
 
-```bash
-cargo fmt --all -- --check
-cargo clippy -p heartlink-server --no-default-features --features self-hosted --all-targets -- -D warnings
-cargo test -p heartlink-server --no-default-features --features self-hosted
-docker build -f apps/server/Dockerfile .
+客户端加密数据后再同步；自部署服务只负责身份验证、设备控制、密文版本和管理操作。
+
+```mermaid
+%%{init: {'theme': 'base', 'themeVariables': {'fontSize': '14px', 'lineColor': '#64748B'}}}%%
+graph LR
+    A[HeartLink 客户端<br/>仓库外组件] -->|HTTPS /v1| B[Caddy 网关<br/>可选 TLS]
+    B --> C[业务 API<br/>Axum :8787]
+    B --> D[管理面板<br/>Axum :8789]
+    C --> E[账户与设备控制<br/>Argon2id / Ed25519]
+    C --> F[(MySQL 8.4<br/>不透明密文)]
+    D --> F
+    A -. SSH / SFTP / RDP 直连 .-> G[目标服务器<br/>不经过云端]
+
+    classDef client fill:#3B82F6,stroke:#2563EB,color:#fff,stroke-width:2px
+    classDef gateway fill:#F59E0B,stroke:#D97706,color:#fff,stroke-width:2px
+    classDef service fill:#10B981,stroke:#059669,color:#fff,stroke-width:2px
+    classDef auth fill:#F97316,stroke:#EA580C,color:#fff,stroke-width:2px
+    classDef data fill:#8B5CF6,stroke:#7C3AED,color:#fff,stroke-width:2px
+    classDef external fill:#F43F5E,stroke:#E11D48,color:#fff,stroke-width:2px
+
+    class A client
+    class B gateway
+    class C,D service
+    class E auth
+    class F data
+    class G external
 ```
 
-接口保持版本化 `/v1`，数据库迁移只前进。协议字段采用向后兼容的可选扩展；官方云的新安全协议会使用独立版本和信任策略，不改变自部署云现有身份公钥和密文同步兼容性。
+## 配置
 
-## 许可与安全
+一键安装器会在 `/opt/heartlink-cloud/config/heartlink.env` 生成运行配置。下表列出最常用的选项。
 
-自部署服务为 `AGPL-3.0-only`，共享协议模型为 `Apache-2.0`，文档为 `CC-BY-4.0`。生产部署前请阅读 `SECURITY.md` 和 `docs/SELF_HOSTING_LINUX.md`，备份 `/opt/heartlink-cloud/secrets` 与 Docker 数据卷，并将身份公钥通过可信渠道录入客户端。
+| 变量 | 说明 | 默认值 |
+|---|---|---|
+| `HEARTLINK_DATABASE_NAME` | MySQL 数据库名。 | `heartlink` |
+| `HEARTLINK_DATABASE_USER` | MySQL 应用账户。 | `heartlink` |
+| `HEARTLINK_DATABASE_PASSWORD` | MySQL 应用账户密码。 | 安装器随机生成 |
+| `HEARTLINK_PUBLISH_IP` | 业务端口的发布地址。HTTPS 模式保持回环地址。 | 局域网为 `0.0.0.0` |
+| `HEARTLINK_PANEL_PUBLISH_IP` | 管理面板的发布地址。 | `127.0.0.1` |
+| `HEARTLINK_REGISTRATION_ENABLED` | 是否允许新账户注册。 | `true` |
+| `HEARTLINK_RECOVERY_EMAIL_WEBHOOK` | 邮箱验证码发送服务的 HTTPS webhook。 | 未设置 |
+| `HEARTLINK_RECOVERY_SMS_WEBHOOK` | 短信验证码发送服务的 HTTPS webhook。 | 未设置 |
+| `HEARTLINK_RECOVERY_WEBHOOK_TOKEN` | 找回 webhook 使用的可选 Bearer token。 | 未设置 |
+| `HEARTLINK_RECOVERY_PEPPER` | 找回验证码摘要的独立随机值，至少 32 个字符。 | 安装器随机生成 |
+
+完整配置、1Panel 接入和备份说明见 [Linux 自部署指南](docs/SELF_HOSTING_LINUX.md)。
+
+## API
+
+公开协议定义位于 [OpenAPI 3.1 文档](docs/api/openapi.yaml)。除健康检查和注册/登录外，接口均需要对应的 Bearer 或设备控制凭据。
+
+| 方法 | 路径 | 用途 | 认证 |
+|---|---|---|---|
+| `GET` | `/health` | 检查服务与协议版本。 | 无 |
+| `POST` | `/v1/auth/register` | 注册账户并创建会话。 | 无 |
+| `POST` | `/v1/auth/login` | 验证账户并创建会话。 | 无 |
+| `DELETE` | `/v1/auth/session` | 吊销当前会话。 | Bearer |
+| `GET / POST` | `/v1/devices` | 查询或登记设备。 | Bearer |
+| `DELETE` | `/v1/devices/{device_id}` | 使用账户密码吊销设备。 | Bearer |
+| `GET / POST` | `/v1/devices/{device_id}/control` | 轮询或确认设备控制命令。 | 设备控制 token |
+| `POST` | `/v1/sync/push` | 提交一个密文版本或返回冲突。 | Bearer |
+| `GET` | `/v1/sync/pull` | 增量拉取密文版本和 tombstone。 | Bearer |
+
+## 项目结构
+
+```text
+.
+├── .github/workflows/       # CI 配置
+├── apps/server/             # Axum 云端与管理面板
+│   ├── migrations_mysql/    # MySQL 前进迁移
+│   └── src/                 # API、握手和管理逻辑
+├── docs/                    # 部署、安全模型、OpenAPI 与 ADR
+├── infra/docker/            # Compose、Caddy 与 1Panel 配置
+├── packages/
+│   ├── shared_models/       # 跨组件数据模型
+│   └── sync_protocol/       # 版本化同步协议
+├── install.sh               # Linux 一键安装与运维入口
+├── Cargo.toml               # Rust workspace
+└── SOURCE_MANIFEST.sha256   # 公开导出的文件哈希清单
+```
+
+## 技术栈
+
+| 层级 | 技术 | 用途 |
+|---|---|---|
+| 后端 | Rust 2024、Axum 0.8、Tokio | HTTP 服务、并发运行时和管理面板。 |
+| 数据 | SQLx 0.8、MySQL 8.4 | 数据访问、迁移和持久化。 |
+| 安全 | Argon2id、Ed25519、BLAKE3 | 密码验证、云端身份和 token 摘要。 |
+| 基础设施 | Docker Compose、Caddy 2 | 容器编排、自动 HTTPS 和网络隔离。 |
+| 接口 | REST、OpenAPI 3.1 | `/v1` 版本化 API 与协议文档。 |
+| 验证 | Cargo test、Clippy、GitHub Actions | 格式、静态检查、测试和镜像构建。 |
+
+## 部署
+
+一键安装器从当前仓库拉取源码，在服务器本地构建仅含自部署功能的镜像，并生成独立密码和身份密钥。
+
+- 使用 [Docker Compose 配置](infra/docker/compose.yaml)部署 MySQL、HeartLink 服务和可选 Caddy 网关。
+- 使用 [1Panel 配置](infra/docker/compose.1panel.yaml)接入已有的 MySQL 容器和 Docker 网络。
+- 使用 [GitHub Actions](.github/workflows/ci.yml)验证格式、Clippy、测试、Docker 构建和公开边界。
+- 生产部署前阅读 [安全策略](SECURITY.md)，备份 `/opt/heartlink-cloud/secrets`、配置文件和 Docker 数据卷。
+
+## 贡献
+
+1. Fork 仓库并从 `main` 创建功能分支。
+2. 按 [贡献指南](CONTRIBUTING.md)保持协议兼容，并为行为变更添加测试。
+3. 运行以下验证：
+
+   ```bash
+   cargo fmt --all -- --check
+   cargo clippy -p heartlink-server --no-default-features --features self-hosted --all-targets -- -D warnings
+   cargo test -p heartlink-server --no-default-features --features self-hosted
+   docker build -f apps/server/Dockerfile .
+   ```
+
+4. 提交变更并发起 Pull Request。不要提交真实主机、凭据、私钥、访问 token 或生产密文。
+
+## 许可证
+
+根仓库许可证为 [AGPL-3.0-only](LICENSE)。共享模型与同步协议使用 `Apache-2.0`，文档使用 `CC-BY-4.0`；各目录的具体边界见 [组件许可证说明](LICENSES/README.md)。
