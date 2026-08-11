@@ -40,10 +40,59 @@ jobs:
           HEARTLINK_DOCKER_NETWORK: onepanel
           HEARTLINK_PUBLISH_IP: 192.0.2.10
           HEARTLINK_PANEL_PUBLISH_IP: 192.0.2.10
+          HEARTLINK_SERVER_IMAGE: ghcr.io/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:ca11b030a629c4e7eaeb38b9c39959aba4e8de576b4bb06dc4b2d5a9e7aaa3d9
         run: |
           docker compose -f infra/docker/compose.yaml config --quiet
           docker compose -f infra/docker/compose.1panel.yaml config --quiet
-      - run: docker build -f apps/server/Dockerfile .
+          docker compose -f infra/docker/compose.yaml config --format json | jq -e '
+            .networks.database.internal == true and
+            (.networks.edge.internal // false) == false and
+            (.services.mysql.networks | keys) == ["database"] and
+            (.services.sync.networks | keys | sort) == ["database", "edge"]
+          '
+          ! grep -R -n '^[[:space:]]*build:' infra/docker/compose.yaml infra/docker/compose.1panel.yaml
+          grep -Eq '^readonly DEFAULT_SERVER_IMAGE="ghcr\.io/hearthrobxd/heartlink-self-hosted:1\.4\.0@sha256:[0-9a-f]{64}"$' install.sh
+      - name: Build the self-hosted runtime image
+        run: docker build -f apps/server/Dockerfile -t heartlink/self-hosted:ci .
+      - name: Start the full prebuilt-image stack and probe both listeners
+        env:
+          HEARTLINK_DATABASE_PASSWORD: validation-only-password
+          HEARTLINK_DATABASE_ROOT_PASSWORD: validation-only-root-password
+          HEARTLINK_PUBLISH_IP: 127.0.0.1
+          HEARTLINK_PANEL_PUBLISH_IP: 127.0.0.1
+          HEARTLINK_SERVER_IMAGE: heartlink/self-hosted:ci
+        run: |
+          set -Eeuo pipefail
+          secret_dir="$(mktemp -d)"
+          cleanup() {
+            docker compose --project-name heartlink-ci -f infra/docker/compose.yaml down --volumes --remove-orphans >/dev/null 2>&1 || true
+            rm -rf -- "$secret_dir"
+          }
+          trap cleanup EXIT
+          printf '%s\n' 'validation-only-admin-password' > "$secret_dir/admin-password.txt"
+          head -c 32 /dev/urandom > "$secret_dir/admin-settings.key"
+          docker run --rm --user "$(id -u):$(id -g)" \
+            -v "$secret_dir:/keys" \
+            --entrypoint heartlink-server heartlink/self-hosted:ci \
+            --generate-handshake-key /keys/cloud-handshake.key \
+            > "$secret_dir/cloud-identity-public-key.txt"
+          chmod 0444 "$secret_dir"/*
+          export HEARTLINK_HANDSHAKE_KEY_PATH="$secret_dir/cloud-handshake.key"
+          export HEARTLINK_ADMIN_PASSWORD_PATH="$secret_dir/admin-password.txt"
+          export HEARTLINK_ADMIN_SETTINGS_KEY_PATH="$secret_dir/admin-settings.key"
+          docker compose --project-name heartlink-ci -f infra/docker/compose.yaml up -d --remove-orphans
+          for attempt in $(seq 1 90); do
+            cloud_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 http://127.0.0.1:8787/health || true)"
+            panel_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --max-time 3 http://127.0.0.1:8789/ || true)"
+            if [[ "$cloud_status" == "200" && "$panel_status" =~ ^[1-4][0-9][0-9]$ ]]; then
+              docker compose --project-name heartlink-ci -f infra/docker/compose.yaml ps --all
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose --project-name heartlink-ci -f infra/docker/compose.yaml ps --all
+          docker compose --project-name heartlink-ci -f infra/docker/compose.yaml logs --no-color --tail 160 mysql sync
+          exit 1
 
   secret-scan:
     runs-on: ubuntu-latest

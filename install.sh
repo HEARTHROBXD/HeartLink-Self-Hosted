@@ -2,10 +2,12 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-readonly INSTALLER_VERSION="1.3.1"
+readonly INSTALLER_VERSION="1.4.0"
 readonly DEFAULT_INSTALL_DIR="/opt/heartlink-cloud"
 readonly DEFAULT_REPOSITORY="HEARTHROBXD/HeartLink-Self-Hosted"
 readonly DEFAULT_STARTUP_TIMEOUT="180"
+readonly DEFAULT_SERVER_IMAGE="ghcr.io/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:ca11b030a629c4e7eaeb38b9c39959aba4e8de576b4bb06dc4b2d5a9e7aaa3d9"
+readonly DEFAULT_MYSQL_IMAGE="mysql:8.4.10"
 
 COMMAND="install"
 INSTALL_DIR="${HEARTLINK_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
@@ -15,21 +17,27 @@ SOURCE_ARCHIVE_URL="${HEARTLINK_SOURCE_ARCHIVE_URL:-https://github.com/$REPOSITO
 PUBLISH_IP="${HEARTLINK_PUBLISH_IP:-0.0.0.0}"
 PANEL_PUBLISH_IP="${HEARTLINK_PANEL_PUBLISH_IP:-0.0.0.0}"
 STARTUP_TIMEOUT="${HEARTLINK_STARTUP_TIMEOUT:-$DEFAULT_STARTUP_TIMEOUT}"
+SERVER_IMAGE="${HEARTLINK_SERVER_IMAGE:-$DEFAULT_SERVER_IMAGE}"
+MYSQL_IMAGE="${HEARTLINK_MYSQL_IMAGE:-$DEFAULT_MYSQL_IMAGE}"
 REPOSITORY_EXPLICIT=0
 SOURCE_REF_EXPLICIT=0
 SOURCE_ARCHIVE_URL_EXPLICIT=0
 SOURCE_ARCHIVE_URL_PERSISTED=0
 PUBLISH_IP_EXPLICIT=0
 PANEL_PUBLISH_IP_EXPLICIT=0
+SERVER_IMAGE_EXPLICIT=0
+MYSQL_IMAGE_EXPLICIT=0
 [[ -v HEARTLINK_REPOSITORY ]] && REPOSITORY_EXPLICIT=1
 [[ -v HEARTLINK_SOURCE_REF ]] && SOURCE_REF_EXPLICIT=1
 [[ -v HEARTLINK_SOURCE_ARCHIVE_URL ]] && SOURCE_ARCHIVE_URL_EXPLICIT=1
 [[ -v HEARTLINK_PUBLISH_IP ]] && PUBLISH_IP_EXPLICIT=1
 [[ -v HEARTLINK_PANEL_PUBLISH_IP ]] && PANEL_PUBLISH_IP_EXPLICIT=1
+[[ -v HEARTLINK_SERVER_IMAGE ]] && SERVER_IMAGE_EXPLICIT=1
+[[ -v HEARTLINK_MYSQL_IMAGE ]] && MYSQL_IMAGE_EXPLICIT=1
 PURGE_DATA=0
 INSTALL_OPERATION_ACTIVE=0
 PREVIOUS_CURRENT_TARGET=""
-PREVIOUS_IMAGE_ID=""
+PREVIOUS_ENV_BACKUP=""
 
 log() { printf '[HeartLink] %s\n' "$*"; }
 fail() { printf '[HeartLink] ERROR: %s\n' "$*" >&2; exit 1; }
@@ -51,6 +59,8 @@ Options:
   --source-ref REF       Git branch or tag to install (default: main).
   --startup-timeout SEC  Maximum time to wait for both HTTP listeners
                          (default: 180 seconds).
+  --server-image IMAGE   Override the prebuilt HeartLink OCI image.
+  --mysql-image IMAGE    Override the MySQL OCI image.
   --purge-data           With uninstall only, permanently remove volumes and files.
   -h, --help             Show this help.
 
@@ -72,6 +82,8 @@ parse_args() {
       --install-dir) INSTALL_DIR="${2:?missing install directory}"; shift 2 ;;
       --source-ref) SOURCE_REF="${2:?missing source ref}"; SOURCE_REF_EXPLICIT=1; shift 2 ;;
       --startup-timeout) STARTUP_TIMEOUT="${2:?missing startup timeout}"; shift 2 ;;
+      --server-image) SERVER_IMAGE="${2:?missing server image}"; SERVER_IMAGE_EXPLICIT=1; shift 2 ;;
+      --mysql-image) MYSQL_IMAGE="${2:?missing MySQL image}"; MYSQL_IMAGE_EXPLICIT=1; shift 2 ;;
       --purge-data) PURGE_DATA=1; shift ;;
       -h|--help) usage; exit 0 ;;
       *) fail "unknown argument: $1" ;;
@@ -121,6 +133,14 @@ load_persisted_configuration() {
       value="$(read_config_value HEARTLINK_PANEL_PUBLISH_IP "$runtime_env" || true)"
       [[ -z "$value" ]] || PANEL_PUBLISH_IP="$value"
     fi
+    if (( ! SERVER_IMAGE_EXPLICIT )); then
+      value="$(read_config_value HEARTLINK_SERVER_IMAGE "$runtime_env" || true)"
+      [[ -z "$value" ]] || SERVER_IMAGE="$value"
+    fi
+    if (( ! MYSQL_IMAGE_EXPLICIT )); then
+      value="$(read_config_value HEARTLINK_MYSQL_IMAGE "$runtime_env" || true)"
+      [[ -z "$value" ]] || MYSQL_IMAGE="$value"
+    fi
   fi
 
   if [[ -f "$installer_state" ]]; then
@@ -156,6 +176,16 @@ validate_runtime_options() {
   [[ "$SOURCE_REF" =~ ^[A-Za-z0-9._/-]+$ ]] || fail "source ref contains unsupported characters"
   [[ "$SOURCE_ARCHIVE_URL" =~ ^https://[^[:space:]]+$ ]] || \
     fail "source archive URL must be an HTTPS URL without whitespace"
+  validate_image_reference "HeartLink server image" "$SERVER_IMAGE"
+  validate_image_reference "MySQL image" "$MYSQL_IMAGE"
+}
+
+validate_image_reference() {
+  local label="$1" value="$2"
+  [[ ${#value} -le 512 && "$value" =~ ^[A-Za-z0-9._:/@-]+$ ]] || \
+    fail "$label contains unsupported characters"
+  [[ "$value" == */*:* || "$value" == */*@sha256:* || "$value" == *:* ]] || \
+    fail "$label must include an explicit tag or sha256 digest"
 }
 
 write_installer_source() {
@@ -192,14 +222,13 @@ on_exit() {
     if [[ -n "$PREVIOUS_CURRENT_TARGET" && -d "$PREVIOUS_CURRENT_TARGET" ]]; then
       ln -sfn "$PREVIOUS_CURRENT_TARGET" "$INSTALL_DIR/current.next"
       mv -Tf "$INSTALL_DIR/current.next" "$INSTALL_DIR/current"
-      if [[ -n "$PREVIOUS_IMAGE_ID" ]]; then
-        if docker image tag "$PREVIOUS_IMAGE_ID" heartlink/self-hosted:local >/dev/null 2>&1; then
-          log "The previous container image tag was restored."
-        else
-          printf '[HeartLink] WARNING: the previous image tag could not be restored.\n' >&2
-        fi
-      fi
       log "The previous release pointer was restored. Run the stable management script with 'start' to resume it."
+    fi
+    if [[ -n "$PREVIOUS_ENV_BACKUP" && -f "$PREVIOUS_ENV_BACKUP" ]]; then
+      mv -f -- "$PREVIOUS_ENV_BACKUP" "$INSTALL_DIR/.env"
+      chmod 0600 "$INSTALL_DIR/.env"
+      log "The previous runtime configuration was restored."
+      PREVIOUS_ENV_BACKUP=""
     fi
     printf '[HeartLink] Installation did not complete. Your data and secrets were preserved.\n' >&2
     if [[ -f "$INSTALL_DIR/install.sh" ]]; then
@@ -293,6 +322,8 @@ write_environment() {
   if [[ -f "$env_file" ]]; then
     upsert_env HEARTLINK_PUBLISH_IP "$PUBLISH_IP"
     upsert_env HEARTLINK_PANEL_PUBLISH_IP "$PANEL_PUBLISH_IP"
+    upsert_env HEARTLINK_SERVER_IMAGE "$SERVER_IMAGE"
+    upsert_env HEARTLINK_MYSQL_IMAGE "$MYSQL_IMAGE"
     return
   fi
   umask 077
@@ -308,9 +339,20 @@ HEARTLINK_ADMIN_PASSWORD_PATH=$INSTALL_DIR/secrets/admin-password.txt
 HEARTLINK_ADMIN_SETTINGS_KEY_PATH=$INSTALL_DIR/secrets/admin-settings.key
 HEARTLINK_PUBLISH_IP=$PUBLISH_IP
 HEARTLINK_PANEL_PUBLISH_IP=$PANEL_PUBLISH_IP
+HEARTLINK_SERVER_IMAGE=$SERVER_IMAGE
+HEARTLINK_MYSQL_IMAGE=$MYSQL_IMAGE
 TZ=${TZ:-Asia/Shanghai}
 EOF
   chmod 0600 "$env_file"
+}
+
+backup_runtime_environment() {
+  local env_file="$INSTALL_DIR/.env"
+  if [[ -f "$env_file" ]]; then
+    PREVIOUS_ENV_BACKUP="$(mktemp "$INSTALL_DIR/.env.before-install.XXXXXX")"
+    cp -- "$env_file" "$PREVIOUS_ENV_BACKUP"
+    chmod 0600 "$PREVIOUS_ENV_BACKUP"
+  fi
 }
 
 upsert_env() {
@@ -359,6 +401,11 @@ compose() {
   local args=(--project-name heartlink-cloud --env-file "$INSTALL_DIR/.env" \
     -f "$INSTALL_DIR/current/infra/docker/compose.yaml")
   docker compose "${args[@]}" "$@"
+}
+
+pull_runtime_images() {
+  log "Pulling prebuilt HeartLink and MySQL images; no Rust compilation runs on this server"
+  compose pull sync mysql
 }
 
 probe_ip() {
@@ -439,7 +486,7 @@ ensure_identity_key() {
   log "Generating the cloud Ed25519 identity key"
   docker run --rm --user 0:0 \
     -v "$INSTALL_DIR/secrets:/keys" \
-    --entrypoint heartlink-server heartlink/self-hosted:local \
+    --entrypoint heartlink-server "$SERVER_IMAGE" \
     --generate-handshake-key /keys/cloud-handshake.key >"$public_key_file"
   [[ -s "$key" && -s "$public_key_file" ]] || fail "identity key generation failed"
   chmod 0400 "$key"
@@ -459,17 +506,14 @@ write_result() {
   panel_ip="$PANEL_PUBLISH_IP"
   [[ "$cloud_ip" != "0.0.0.0" ]] || cloud_ip="$server_ip"
   [[ "$panel_ip" != "0.0.0.0" ]] || panel_ip="$server_ip"
-  if [[ "$panel_ip" == "127.0.0.1" ]]; then
-    tunnel="ssh -N -L 8789:127.0.0.1:8789 root@$server_ip"
-  else
-    tunnel="not required; connect to the published panel IP"
-  fi
+  tunnel="ssh -N -L 8789:127.0.0.1:8789 root@$server_ip"
   umask 077
   cat >"$INSTALL_DIR/install-result.txt" <<EOF
 HeartLink Self-Hosted
 Installer version: $INSTALLER_VERSION
+Server image: $SERVER_IMAGE
 Cloud endpoint: http://$cloud_ip:8787
-Administration panel: http://$panel_ip:8789
+Administration panel (private source or same-host proxy): http://$panel_ip:8789
 Administration password: $(<"$INSTALL_DIR/secrets/admin-password.txt")
 Cloud identity public key: $(<"$INSTALL_DIR/secrets/cloud-identity-public-key.txt")
 Panel SSH tunnel: $tunnel
@@ -502,12 +546,9 @@ install_or_upgrade() {
   install_management_script
   write_installer_source
   write_initial_secrets
+  backup_runtime_environment
   write_environment
-  if [[ -n "$PREVIOUS_CURRENT_TARGET" ]]; then
-    PREVIOUS_IMAGE_ID="$(docker image inspect --format '{{.Id}}' heartlink/self-hosted:local 2>/dev/null || true)"
-  fi
-  log "Building the self-hosted-only image; update distribution code is not compiled"
-  compose build sync
+  pull_runtime_images
   ensure_identity_key
   log "Starting HeartLink Cloud"
   compose up -d --remove-orphans
@@ -518,6 +559,10 @@ install_or_upgrade() {
   chmod 0600 "$INSTALL_DIR/.heartlink-install-root"
   rm -f -- "$INSTALL_DIR/.heartlink-installing"
   rm -f -- "$INSTALL_DIR/.heartlink-uninstalled"
+  if [[ -n "$PREVIOUS_ENV_BACKUP" ]]; then
+    rm -f -- "$PREVIOUS_ENV_BACKUP"
+    PREVIOUS_ENV_BACKUP=""
+  fi
   INSTALL_OPERATION_ACTIVE=0
   PREVIOUS_CURRENT_TARGET=""
   log "Installation completed successfully"
