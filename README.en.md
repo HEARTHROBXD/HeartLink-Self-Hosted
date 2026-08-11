@@ -13,6 +13,11 @@
 </p>
 
 <p align="center">
+  <a href="https://heartlink.hearthrob.cn/"><img src="https://img.shields.io/badge/Official_Website-2563EB?style=for-the-badge" alt="Official Website" /></a>
+  <a href="https://heartlink.hearthrob.cn/#download"><img src="https://img.shields.io/badge/Download_Client-7C3AED?style=for-the-badge" alt="Download Client" /></a>
+</p>
+
+<p align="center">
   <a href="#quick-start"><img src="https://img.shields.io/badge/Quick_Start-16A34A?style=for-the-badge" alt="Quick Start" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL--3.0--only-EAB308?style=for-the-badge" alt="License" /></a>
 </p>
@@ -38,6 +43,9 @@
 
 > [!IMPORTANT]
 > This repository does not contain the HeartLink desktop client, official-cloud operations modules, or software-update distribution. SSH, SFTP, and RDP traffic connects directly from the client to the target server and never passes through this cloud.
+
+> [!TIP]
+> Looking for the HeartLink client? Visit the [official HeartLink website](https://heartlink.hearthrob.cn/) for product information, then open the [client download section](https://heartlink.hearthrob.cn/#download) for the current Windows x64 preview. The website lists the latest availability for other platforms.
 
 ## Quick Start
 
