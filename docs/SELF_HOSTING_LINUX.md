@@ -4,11 +4,11 @@ HeartLink 云端是 Linux 通用的 Rust HTTP 服务，负责账户注册/登录
 
 客户端除 HTTPS 外还会固定验证自托管云的 Ed25519 身份公钥。首次启动服务前必须生成服务器私钥；客户端只填写公钥。完整协议和官方双服务部署见 [OFFICIAL_CLOUD_DEPLOYMENT.md](OFFICIAL_CLOUD_DEPLOYMENT.md)。
 
-生产数据库固定推荐 **MySQL 8.4.10 LTS**。部署文件钉住完整镜像版本 `mysql:8.4.10`，避免 `latest` 或浮动标签在无人确认时跨版本升级。
+生产数据库固定推荐 **MySQL 8.4.10 LTS**。部署文件钉住完整镜像版本 `mysql:8.4.10`，避免 `latest` 或浮动标签在无人确认时跨版本升级。HeartLink 一键安装与下述 Compose 部署默认使用官方仓库集中构建的 `amd64`/`arm64` 预编译镜像，并锁定不可变摘要；用户服务器不需要安装 Rust，也不会执行 `cargo build`。
 
 ## 一、统一 IP 端点与可选反向代理
 
-HeartLink 云端不区分局域网和公网安装模式，也不要求域名。业务 API 固定使用发布 IP 的 `8787` 端口，管理面板固定使用发布 IP 的 `8789` 端口。需要 HTTPS 时，由用户选择 IP 或域名作为外部地址，并自行配置证书、WAF 和反向代理。下面的雷池拓扑只是一种可选部署方式。
+HeartLink 云端不区分局域网和公网安装模式，也不要求域名。业务 API 固定使用发布 IP 的 `8787` 端口，管理面板固定使用发布 IP 的 `8789` 端口。管理应用只接受回环、局域网/私网来源或同机反向代理；公网来源直接访问 `8789` 会按安全策略返回 `403`。需要公网管理或 HTTPS 时，由用户选择 IP 或域名作为外部地址，并自行配置证书、WAF 和反向代理。下面的雷池拓扑只是一种可选部署方式。
 
 ```text
 HeartLink 客户端
@@ -61,21 +61,7 @@ docker inspect <MySQL容器名> --format '{{json .NetworkSettings.Networks}}'
 
 ### 3. 配置并启动 HeartLink
 
-先构建镜像并生成不可提交到 Git 的握手身份密钥：
-
-```bash
-mkdir -p infra/docker/secrets
-docker build -f apps/server/Dockerfile -t heartlink/sync:local .
-docker run --rm \
-  -v "$PWD/infra/docker/secrets:/keys" \
-  --entrypoint heartlink-server heartlink/sync:local \
-  --generate-handshake-key /keys/cloud-handshake.key
-chmod 400 infra/docker/secrets/cloud-handshake.key
-```
-
-命令输出的是客户端需要填写的公钥；`cloud-handshake.key` 是服务器私钥，不得放进源码、镜像或客户端。
-
-在项目根目录创建仅管理员可读的环境文件：
+在项目根目录创建仅管理员可读的环境文件。示例已经包含锁定的官方预编译镜像：
 
 ```bash
 cp infra/docker/.env.example infra/docker/.env
@@ -91,6 +77,7 @@ HEARTLINK_DATABASE_NAME=heartlink
 HEARTLINK_DATABASE_USER=heartlink
 HEARTLINK_DATABASE_PASSWORD=替换为上一步的独立随机密码
 HEARTLINK_DOCKER_NETWORK=1panel-network-name
+HEARTLINK_SERVER_IMAGE=ghcr.io/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:ca11b030a629c4e7eaeb38b9c39959aba4e8de576b4bb06dc4b2d5a9e7aaa3d9
 HEARTLINK_HANDSHAKE_KEY_PATH=./secrets/cloud-handshake.key
 HEARTLINK_HANDSHAKE_KEY_ID=self-hosted-cloud-v1
 
@@ -107,11 +94,29 @@ HEARTLINK_RECOVERY_PEPPER=替换为至少32个字符的独立随机值
 TZ=Asia/Shanghai
 ```
 
+拉取预编译镜像并生成不可提交到 Git 的握手身份密钥：
+
+```bash
+server_image="$(sed -n 's/^HEARTLINK_SERVER_IMAGE=//p' infra/docker/.env)"
+test -n "$server_image"
+docker pull "$server_image"
+mkdir -p infra/docker/secrets
+docker run --rm --user 0:0 \
+  -v "$PWD/infra/docker/secrets:/keys" \
+  --entrypoint heartlink-server "$server_image" \
+  --generate-handshake-key /keys/cloud-handshake.key
+chmod 400 infra/docker/secrets/cloud-handshake.key
+```
+
+命令输出的是客户端需要填写的公钥；`cloud-handshake.key` 是服务器私钥，不得放进源码、镜像或客户端。
+
 启动服务：
 
 ```bash
 docker compose --env-file infra/docker/.env \
-  -f infra/docker/compose.1panel.yaml up -d --build
+  -f infra/docker/compose.1panel.yaml pull sync
+docker compose --env-file infra/docker/.env \
+  -f infra/docker/compose.1panel.yaml up -d
 docker compose --env-file infra/docker/.env \
   -f infra/docker/compose.1panel.yaml ps
 curl --fail http://10.0.0.20:8787/health
@@ -139,6 +144,8 @@ curl --fail http://10.0.0.20:8787/health
 
 此方式会同时启动 `heartlink-sync` 和私有网络内的 `mysql:8.4.10`：
 
+Compose 使用两个网络：MySQL 只加入 `internal: true` 的数据库网络；HeartLink 同时加入该数据库网络和普通边缘网络。端口 `8787`/`8789` 从边缘网络发布，`3306` 仍不发布。不要把 HeartLink 也限制为只接入内部网络，否则 Docker 29 等版本可能保留期望的 `PortBindings`，却不创建实际宿主机监听。
+
 ```bash
 cp infra/docker/.env.example infra/docker/.env
 chmod 600 infra/docker/.env
@@ -155,7 +162,9 @@ HEARTLINK_DATABASE_ROOT_PASSWORD=另一个高强度随机密码
 
 ```bash
 docker compose --env-file infra/docker/.env \
-  -f infra/docker/compose.yaml up -d --build
+  -f infra/docker/compose.yaml pull sync mysql
+docker compose --env-file infra/docker/.env \
+  -f infra/docker/compose.yaml up -d
 curl --fail http://127.0.0.1:8787/health
 ```
 
@@ -169,9 +178,9 @@ HEARTLINK_REGISTRATION_ENABLED=false
 
 然后再次执行对应的 `docker compose ... up -d`。已有账户仍可登录，新账户注册会返回拒绝。
 
-## 四、从源码安装 systemd 服务
+## 四、可选：从源码安装 systemd 服务
 
-适用于 amd64/arm64 且带 systemd 的常见 Linux 发行版。需要 Rust 1.85 或更高、C 编译工具、Git、CA 证书，以及一个已准备好的 MySQL 8.4 数据库。
+此高级路径明确选择在本机编译，不属于一键安装流程。仅在需要自行修改源码或不使用 Docker 时采用；普通部署请使用前述预编译镜像。它适用于 amd64/arm64 且带 systemd 的常见 Linux 发行版，需要 Rust 1.85 或更高、C 编译工具、Git、CA 证书，以及一个已准备好的 MySQL 8.4 数据库。
 
 ```bash
 git clone <你的 HeartLink 仓库地址> /tmp/heartlink-src
@@ -203,7 +212,7 @@ sudo systemctl status heartlink-sync
 curl --fail http://127.0.0.1:8787/health
 ```
 
-升级时先备份 MySQL，再重新构建和替换二进制。数据库迁移会在服务启动时自动向前执行，包括账户手机号、验证码挑战和一次性找回令牌表。
+该源码编译路径升级时先备份 MySQL，再重新构建和替换二进制；使用一键安装器或 Compose 预编译镜像时无需执行本步骤。数据库迁移会在服务启动时自动向前执行，包括账户手机号、验证码挑战和一次性找回令牌表。
 
 ## 五、服务配置项
 
@@ -307,7 +316,7 @@ chmod 600 heartlink-*.sql
 
 1. 阅读新版本交付说明并备份数据库；
 2. 将 `mysql:8.4.10` 升级到新补丁版本前单独验证，不自动追随浮动标签；
-3. 重新构建 HeartLink 镜像；
+3. 将环境文件中的 `HEARTLINK_SERVER_IMAGE` 更新到发行说明指定的新固定摘要，并拉取该预编译镜像；
 4. 启动后检查容器日志、`/health`、注册/登录和一次双向同步；
 5. 保留上一版镜像和数据库备份，直到验证完成。
 
