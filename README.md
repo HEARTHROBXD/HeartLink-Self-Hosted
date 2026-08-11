@@ -13,6 +13,11 @@
 </p>
 
 <p align="center">
+  <a href="https://heartlink.hearthrob.cn/"><img src="https://img.shields.io/badge/HeartLink_官网-2563EB?style=for-the-badge" alt="Official Website" /></a>
+  <a href="https://heartlink.hearthrob.cn/#download"><img src="https://img.shields.io/badge/下载客户端-7C3AED?style=for-the-badge" alt="Download Client" /></a>
+</p>
+
+<p align="center">
   <a href="#快速开始"><img src="https://img.shields.io/badge/快速开始-16A34A?style=for-the-badge" alt="Quick Start" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/许可证-AGPL--3.0--only-EAB308?style=for-the-badge" alt="License" /></a>
 </p>
@@ -38,6 +43,9 @@
 
 > [!IMPORTANT]
 > 本仓库不包含 HeartLink 桌面客户端、官方云运营模块或软件更新下发功能。SSH、SFTP 和 RDP 流量由客户端直连目标服务器，不经过本云端。
+
+> [!TIP]
+> 需要 HeartLink 客户端？访问 [HeartLink 官网](https://heartlink.hearthrob.cn/)了解产品，并前往[客户端下载区](https://heartlink.hearthrob.cn/#download)获取当前 Windows x64 预览版。其他平台的开放状态以官网为准。
 
 ## 快速开始
 
