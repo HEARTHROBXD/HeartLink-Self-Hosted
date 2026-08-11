@@ -1,9 +1,6 @@
 services:
   sync:
-    build:
-      context: ../..
-      dockerfile: apps/server/Dockerfile
-    image: heartlink/sync:local
+    image: "${HEARTLINK_SERVER_IMAGE:?set HEARTLINK_SERVER_IMAGE to the pinned prebuilt image}"
     restart: unless-stopped
     environment:
       HEARTLINK_SERVICE_ROLE: "self-hosted"
