@@ -83,20 +83,24 @@ Operators manage HTTPS and domains independently. A reverse proxy may expose an 
 
 ### Save the installation result
 
-When installation completes, the terminal and `/opt/heartlink-cloud/install-result.txt` show IP-based cloud and panel URLs, the random administration password, the Ed25519 cloud identity public key, an optional SSH tunnel command, and the HTTPS upstream addresses. Only root can read this file.
+The installer waits for a successful cloud API health check on `8787` and an HTTP response from the administration listener on `8789`; it writes the completion marker only after both listeners work. When installation completes, the terminal and `/opt/heartlink-cloud/install-result.txt` show IP-based cloud and panel URLs, the random administration password, the Ed25519 cloud identity public key, an optional SSH tunnel command, and the HTTPS upstream addresses. Only root can read this file.
+
+After installation, always manage the service through `/opt/heartlink-cloud/install.sh`. The installer creates this stable entry point with mode `0755`, independently of whether an archive or Git checkout preserved executable metadata.
 
 ## Usage
 
 ### Check status
 
 ```bash
-sudo /opt/heartlink-cloud/current/install.sh status
+sudo /opt/heartlink-cloud/install.sh status
 ```
+
+`status` lists running and stopped containers and probes both `8787` and `8789`. An unhealthy service returns a non-zero status and prints container state plus recent logs instead of treating container creation as availability.
 
 ### Upgrade atomically
 
 ```bash
-sudo /opt/heartlink-cloud/current/install.sh upgrade
+sudo /opt/heartlink-cloud/install.sh upgrade
 ```
 
 An upgrade builds a new append-only release directory and atomically switches `current`, while preserving database volumes, configuration, and the original cloud identity private key.
@@ -104,10 +108,31 @@ An upgrade builds a new append-only release directory and atomically switches `c
 ### Uninstall
 
 ```bash
-sudo /opt/heartlink-cloud/current/install.sh uninstall
+sudo /opt/heartlink-cloud/install.sh uninstall
 ```
 
 A normal uninstall preserves data. Only the explicit `--purge-data` option permanently removes Docker volumes, identity keys, and configuration.
+
+### Recover from a failed installation
+
+The installer marks HeartLink as installed only after the image build, identity-key generation, and service startup all succeed. If any step fails, existing data and generated secrets are preserved. Run:
+
+```bash
+sudo /opt/heartlink-cloud/install.sh status
+sudo /opt/heartlink-cloud/install.sh reinstall
+```
+
+`reinstall` downloads and builds the selected release again without clearing database volumes or identity keys. A failed upgrade restores the previous release pointer so `start` can resume the prior version; `stop` stops services without deleting data. `status` and `uninstall` also remain available when the first installation failed before a complete Compose runtime was created.
+
+For installer `1.2.0` and earlier, if `/opt/heartlink-cloud/current/install.sh: command not found` appears, invoke the old file through Bash to bypass its missing executable bit, then repair the stable entry point and runtime health with the current installer:
+
+```bash
+sudo bash /opt/heartlink-cloud/current/install.sh status
+curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | \
+  sudo bash -s -- reinstall
+```
+
+The repair preserves database volumes, runtime configuration, and the cloud identity key. Do not delete `/opt/heartlink-cloud` or Docker volumes as a recovery shortcut.
 
 ## Architecture
 

@@ -83,20 +83,24 @@ HTTPS 与域名由用户自行配置。反向代理可以使用 IP 或域名作�
 
 ### 保存安装结果
 
-安装结束时，终端和 `/opt/heartlink-cloud/install-result.txt` 会显示基于 IP 的云端地址、面板地址、随机管理密码、云端 Ed25519 身份公钥、可选 SSH 隧道命令和 HTTPS 上游地址。该文件仅允许 root 读取。
+安装器会等待业务 API `8787` 的健康检查和管理面板 `8789` 的 HTTP 响应；两个监听都可用后才会写入“安装完成”标记。安装结束时，终端和 `/opt/heartlink-cloud/install-result.txt` 会显示基于 IP 的云端地址、面板地址、随机管理密码、云端 Ed25519 身份公钥、可选 SSH 隧道命令和 HTTPS 上游地址。该文件仅允许 root 读取。
+
+安装后固定使用 `/opt/heartlink-cloud/install.sh` 管理服务。安装器会以 `0755` 权限创建这个稳定入口，不依赖归档或 Git 是否保留可执行位。
 
 ## 使用方法
 
 ### 查看状态
 
 ```bash
-sudo /opt/heartlink-cloud/current/install.sh status
+sudo /opt/heartlink-cloud/install.sh status
 ```
+
+`status` 会列出运行中和已停止的容器，并实际探测 `8787`/`8789`。若服务不健康，它会返回非零状态，同时输出容器状态和最近日志，不会把“容器已创建”误报为可用。
 
 ### 原子升级
 
 ```bash
-sudo /opt/heartlink-cloud/current/install.sh upgrade
+sudo /opt/heartlink-cloud/install.sh upgrade
 ```
 
 升级会构建新的只增版本目录并原子切换 `current`，保留数据库卷、配置和原云端身份私钥。
@@ -104,10 +108,31 @@ sudo /opt/heartlink-cloud/current/install.sh upgrade
 ### 卸载
 
 ```bash
-sudo /opt/heartlink-cloud/current/install.sh uninstall
+sudo /opt/heartlink-cloud/install.sh uninstall
 ```
 
 普通卸载保留数据。只有显式添加 `--purge-data` 才会永久删除 Docker 数据卷、身份密钥和配置。
+
+### 安装失败后的恢复
+
+安装器只有在镜像构建、身份密钥生成和服务启动全部成功后才写入“已安装”状态。若中途失败，数据和已生成的密钥会保留，并可直接执行：
+
+```bash
+sudo /opt/heartlink-cloud/install.sh status
+sudo /opt/heartlink-cloud/install.sh reinstall
+```
+
+`reinstall` 会重新下载并构建当前版本，但不会清除数据库卷或身份密钥。失败升级会恢复先前的版本指针，可使用 `start` 重新启动旧版本；`stop` 可停止服务而不删除数据。即使首次安装尚未生成完整的 Compose 文件，`status` 与 `uninstall` 也不会再被半安装状态锁死。
+
+如果是安装器 `1.2.0` 或更早版本，并遇到 `/opt/heartlink-cloud/current/install.sh: command not found`，先用 Bash 绕过旧归档缺失的可执行位，再用最新安装器修复稳定管理入口和服务健康状态：
+
+```bash
+sudo bash /opt/heartlink-cloud/current/install.sh status
+curl -fsSL https://heartlink.hearthrob.cn/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | \
+  sudo bash -s -- reinstall
+```
+
+修复不会清空数据库卷、运行配置或云身份密钥。不要为了恢复服务直接删除 `/opt/heartlink-cloud` 或 Docker 数据卷。
 
 ## 架构
 
