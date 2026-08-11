@@ -10,6 +10,14 @@ source "$repo_root/install.sh"
   printf 'installer smoke test failed: default server image is not pinned to the 1.4.0 digest\n' >&2
   exit 1
 }
+[[ "$DEFAULT_SERVER_IMAGE_MIRROR" =~ ^ghcr\.nju\.edu\.cn/hearthrobxd/heartlink-self-hosted:1\.4\.0@sha256:[0-9a-f]{64}$ ]] || {
+  printf 'installer smoke test failed: mainland mirror is not pinned to the 1.4.0 digest\n' >&2
+  exit 1
+}
+[[ "${DEFAULT_SERVER_IMAGE##*@}" == "${DEFAULT_SERVER_IMAGE_MIRROR##*@}" ]] || {
+  printf 'installer smoke test failed: primary and mirror image digests differ\n' >&2
+  exit 1
+}
 
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
@@ -106,17 +114,53 @@ write_result() { printf 'result\n' >>"$events"; }
 
 install_or_upgrade
 [[ -f "$INSTALL_DIR/.heartlink-install-root" ]] || fail_test "successful install has no completion marker"
-[[ "$(grep -c '^compose:pull sync mysql$' "$events")" == "1" ]] || \
-  fail_test "prebuilt runtime images were not pulled exactly once"
+[[ "$(grep -c '^compose:pull mysql$' "$events")" == "1" ]] || \
+  fail_test "MySQL image was not pulled exactly once"
+[[ "$(grep -c '^compose:pull sync$' "$events")" == "1" ]] || \
+  fail_test "prebuilt HeartLink image was not pulled exactly once"
 if grep -q '^compose:build' "$events"; then
   fail_test "installer attempted to compile an image on the user's server"
 fi
-pull_line="$(grep -n '^compose:pull sync mysql$' "$events" | cut -d: -f1)"
+pull_line="$(grep -n '^compose:pull sync$' "$events" | cut -d: -f1)"
 identity_line="$(grep -n '^identity$' "$events" | cut -d: -f1)"
 [[ "$pull_line" -lt "$identity_line" ]] || fail_test "identity generation ran before the prebuilt image pull"
 health_line="$(grep -n '^health$' "$events" | cut -d: -f1)"
 result_line="$(grep -n '^result$' "$events" | cut -d: -f1)"
 [[ "$health_line" -lt "$result_line" ]] || fail_test "result was generated before health verification"
+
+INSTALL_DIR="$test_root/mirror-fallback"
+mkdir -p "$INSTALL_DIR"
+printf 'HEARTLINK_SERVER_IMAGE=%s\n' "$DEFAULT_SERVER_IMAGE" >"$INSTALL_DIR/.env"
+SERVER_IMAGE="$DEFAULT_SERVER_IMAGE"
+SERVER_IMAGE_EXPLICIT=0
+fallback_events="$test_root/fallback-events"
+compose() {
+  printf 'compose:%s %s image=%s\n' "${1:-}" "${2:-}" "$SERVER_IMAGE" >>"$fallback_events"
+  if [[ "${1:-}" == "pull" && "${2:-}" == "sync" && "$SERVER_IMAGE" == "$DEFAULT_SERVER_IMAGE" ]]; then
+    return 1
+  fi
+}
+
+pull_runtime_images
+[[ "$SERVER_IMAGE" == "$DEFAULT_SERVER_IMAGE_MIRROR" ]] || \
+  fail_test "failed GHCR pull did not select the mainland mirror"
+grep -Fxq "HEARTLINK_SERVER_IMAGE=$DEFAULT_SERVER_IMAGE_MIRROR" "$INSTALL_DIR/.env" || \
+  fail_test "selected mainland mirror was not persisted"
+[[ "$(grep -c '^compose:pull sync ' "$fallback_events")" == "2" ]] || \
+  fail_test "HeartLink image did not receive exactly one mirror retry"
+
+explicit_image="registry.example.test/heartlink/server:tested@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+printf 'HEARTLINK_SERVER_IMAGE=%s\n' "$explicit_image" >"$INSTALL_DIR/.env"
+SERVER_IMAGE="$explicit_image"
+SERVER_IMAGE_EXPLICIT=1
+compose() {
+  [[ "${1:-}" == "pull" && "${2:-}" == "mysql" ]]
+}
+if (pull_runtime_images >/dev/null 2>&1); then
+  fail_test "failed explicit image override was silently replaced"
+fi
+grep -Fxq "HEARTLINK_SERVER_IMAGE=$explicit_image" "$INSTALL_DIR/.env" || \
+  fail_test "failed explicit image override was modified"
 
 validate_image_reference "server image" "ghcr.io/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 if (validate_image_reference "server image" "invalid image reference"); then

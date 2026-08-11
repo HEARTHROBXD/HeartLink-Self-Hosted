@@ -2,11 +2,12 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-readonly INSTALLER_VERSION="1.4.0"
+readonly INSTALLER_VERSION="1.4.1"
 readonly DEFAULT_INSTALL_DIR="/opt/heartlink-cloud"
 readonly DEFAULT_REPOSITORY="HEARTHROBXD/HeartLink-Self-Hosted"
 readonly DEFAULT_STARTUP_TIMEOUT="180"
 readonly DEFAULT_SERVER_IMAGE="ghcr.io/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:ca11b030a629c4e7eaeb38b9c39959aba4e8de576b4bb06dc4b2d5a9e7aaa3d9"
+readonly DEFAULT_SERVER_IMAGE_MIRROR="ghcr.nju.edu.cn/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:ca11b030a629c4e7eaeb38b9c39959aba4e8de576b4bb06dc4b2d5a9e7aaa3d9"
 readonly DEFAULT_MYSQL_IMAGE="mysql:8.4.10"
 
 COMMAND="install"
@@ -67,6 +68,8 @@ Options:
 The installer does not configure domains, certificates, or a reverse proxy.
 Both services are published by IP. Configure HTTPS separately and proxy to
 the selected IP addresses on ports 8787 and 8789.
+For the default digest-pinned HeartLink image, a failed GHCR pull is retried
+through a mainland mirror. Explicit --server-image overrides are never changed.
 EOF
 }
 
@@ -405,7 +408,24 @@ compose() {
 
 pull_runtime_images() {
   log "Pulling prebuilt HeartLink and MySQL images; no Rust compilation runs on this server"
-  compose pull sync mysql
+  compose pull mysql
+  if compose pull sync; then
+    return 0
+  fi
+
+  if ((SERVER_IMAGE_EXPLICIT)) || [[ "$SERVER_IMAGE" != "$DEFAULT_SERVER_IMAGE" ]]; then
+    fail "the configured HeartLink image could not be pulled; check registry access or select another --server-image"
+  fi
+
+  log "The primary GHCR pull failed; retrying the same pinned image through the mainland mirror"
+  SERVER_IMAGE="$DEFAULT_SERVER_IMAGE_MIRROR"
+  upsert_env HEARTLINK_SERVER_IMAGE "$SERVER_IMAGE"
+  if compose pull sync; then
+    log "Using the digest-verified mainland mirror for the HeartLink image"
+    return 0
+  fi
+
+  fail "the HeartLink image could not be pulled from GHCR or the mainland mirror"
 }
 
 probe_ip() {
