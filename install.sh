@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-readonly INSTALLER_VERSION="1.3.0"
+readonly INSTALLER_VERSION="1.3.1"
 readonly DEFAULT_INSTALL_DIR="/opt/heartlink-cloud"
 readonly DEFAULT_REPOSITORY="HEARTHROBXD/HeartLink-Self-Hosted"
 readonly DEFAULT_STARTUP_TIMEOUT="180"
@@ -173,6 +173,10 @@ has_complete_install() {
 
 has_partial_install() {
   [[ -f "$INSTALL_DIR/.heartlink-installing" ]]
+}
+
+has_uninstalled_state() {
+  [[ -f "$INSTALL_DIR/.heartlink-uninstalled" ]]
 }
 
 compose_available() {
@@ -492,6 +496,7 @@ install_or_upgrade() {
   printf 'installer=%s\nstarted=%s\ncommand=%s\n' \
     "$INSTALLER_VERSION" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$COMMAND" \
     >"$INSTALL_DIR/.heartlink-installing"
+  rm -f -- "$INSTALL_DIR/.heartlink-uninstalled"
   INSTALL_OPERATION_ACTIVE=1
   download_release
   install_management_script
@@ -512,12 +517,18 @@ install_or_upgrade() {
   touch "$INSTALL_DIR/.heartlink-install-root"
   chmod 0600 "$INSTALL_DIR/.heartlink-install-root"
   rm -f -- "$INSTALL_DIR/.heartlink-installing"
+  rm -f -- "$INSTALL_DIR/.heartlink-uninstalled"
   INSTALL_OPERATION_ACTIVE=0
   PREVIOUS_CURRENT_TARGET=""
   log "Installation completed successfully"
 }
 
 show_status() {
+  if has_uninstalled_state && ! has_complete_install && ! has_partial_install; then
+    log "State: uninstalled; database volumes, secrets and installation files are preserved"
+    log "Run '$INSTALL_DIR/install.sh install' to install again, or use 'uninstall --purge-data' for permanent removal"
+    return 0
+  fi
   if ! has_complete_install && ! has_partial_install; then
     fail "HeartLink is not installed at $INSTALL_DIR"
   fi
@@ -550,6 +561,9 @@ show_status() {
 }
 
 start_cloud() {
+  if has_uninstalled_state && ! has_complete_install && ! has_partial_install; then
+    fail "HeartLink is uninstalled; run the install or reinstall command"
+  fi
   if ! has_complete_install && ! has_partial_install; then
     fail "HeartLink is not installed at $INSTALL_DIR"
   fi
@@ -560,6 +574,10 @@ start_cloud() {
 }
 
 stop_cloud() {
+  if has_uninstalled_state && ! has_complete_install && ! has_partial_install; then
+    log "HeartLink is already uninstalled; data and installation files remain preserved"
+    return 0
+  fi
   if ! has_complete_install && ! has_partial_install; then
     fail "HeartLink is not installed at $INSTALL_DIR"
   fi
@@ -572,7 +590,7 @@ stop_cloud() {
 }
 
 uninstall_cloud() {
-  if ! has_complete_install && ! has_partial_install; then
+  if ! has_complete_install && ! has_partial_install && ! has_uninstalled_state; then
     fail "refusing to uninstall an unmarked directory"
   fi
   [[ ! -L "$INSTALL_DIR" ]] || fail "installation root must not be a symbolic link"
@@ -586,19 +604,45 @@ uninstall_cloud() {
     resolved="$(realpath -e "$INSTALL_DIR")"
     [[ "$resolved" == "$INSTALL_DIR" && "$resolved" == /* && ${#resolved} -ge 16 ]] || \
       fail "unsafe installation directory; data was not removed"
-    [[ -f "$resolved/.heartlink-install-root" || -f "$resolved/.heartlink-installing" ]] || \
+    [[ -f "$resolved/.heartlink-install-root" || -f "$resolved/.heartlink-installing" || \
+      -f "$resolved/.heartlink-uninstalled" ]] || \
       fail "installation marker disappeared"
     rm -rf --one-file-system -- "$resolved"
     log "Containers, named volumes, secrets and installation files were permanently removed"
   else
+    if has_uninstalled_state && ! has_complete_install && ! has_partial_install; then
+      log "HeartLink is already uninstalled; database volumes, secrets and installation files remain preserved"
+      log "Run 'install' to install again, or use --purge-data for permanent removal"
+      return 0
+    fi
     if compose_available; then
       compose down --remove-orphans
-      log "Containers were removed; database volumes, secrets and files were preserved"
+      log "Containers were removed"
     else
-      log "Incomplete installation detected; no containers were removed and all files were preserved"
+      log "No complete Compose runtime was found; no containers were removed"
     fi
-    log "Run 'reinstall' to repair this installation, or use --purge-data for permanent removal"
+    rm -f -- "$INSTALL_DIR/.heartlink-install-root" "$INSTALL_DIR/.heartlink-installing"
+    touch "$INSTALL_DIR/.heartlink-uninstalled"
+    chmod 0600 "$INSTALL_DIR/.heartlink-uninstalled"
+    log "HeartLink was uninstalled; database volumes, secrets and installation files were preserved"
+    log "Run 'install' to install again, or use --purge-data for permanent removal"
   fi
+}
+
+install_cloud() {
+  if has_complete_install; then
+    if compose_available && runtime_is_ready; then
+      log "HeartLink is already installed and healthy; no changes were made"
+      show_status
+      return 0
+    fi
+    log "An installed marker exists but the runtime is not healthy; repairing the installation while preserving data"
+  elif has_partial_install; then
+    log "Recovering an incomplete installation"
+  elif has_uninstalled_state; then
+    log "Installing HeartLink again while reusing the preserved database volumes and secrets"
+  fi
+  install_or_upgrade
 }
 
 main() {
@@ -609,20 +653,14 @@ main() {
   validate_runtime_options
   case "$COMMAND" in
     install)
-      if has_complete_install; then
-        fail "already installed; use upgrade or reinstall"
-      fi
-      if has_partial_install; then
-        log "Recovering an incomplete installation"
-      fi
-      install_or_upgrade
+      install_cloud
       ;;
     upgrade)
       has_complete_install || fail "install HeartLink first, or use reinstall to recover a failed install"
       install_or_upgrade
       ;;
     reinstall)
-      if ! has_complete_install && ! has_partial_install; then
+      if ! has_complete_install && ! has_partial_install && ! has_uninstalled_state; then
         log "No existing markers were found; performing a fresh installation"
       else
         log "Reinstalling HeartLink while preserving database volumes and secrets"

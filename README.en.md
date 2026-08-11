@@ -111,7 +111,7 @@ An upgrade builds a new append-only release directory and atomically switches `c
 sudo /opt/heartlink-cloud/install.sh uninstall
 ```
 
-A normal uninstall preserves data. Only the explicit `--purge-data` option permanently removes Docker volumes, identity keys, and configuration.
+A normal uninstall removes the containers and installed state while preserving database volumes, identity keys, configuration, and release files. Running `install` again reuses that preserved data; repeating a normal uninstall succeeds with an already-uninstalled message. `status` explicitly reports the preserved-data state. Only the explicit `--purge-data` option permanently removes Docker volumes, identity keys, configuration, and installation files.
 
 ### Recover from a failed installation
 

@@ -111,7 +111,7 @@ sudo /opt/heartlink-cloud/install.sh upgrade
 sudo /opt/heartlink-cloud/install.sh uninstall
 ```
 
-普通卸载保留数据。只有显式添加 `--purge-data` 才会永久删除 Docker 数据卷、身份密钥和配置。
+普通卸载移除容器和“已安装”状态，但保留数据库卷、身份密钥、配置和 release 文件。此后可以直接再次运行 `install`；重复执行普通卸载会成功返回“已经卸载”。`status` 会明确显示“已卸载但数据保留”。只有显式添加 `--purge-data` 才会永久删除 Docker 数据卷、身份密钥、配置和安装文件。
 
 ### 安装失败后的恢复
 
