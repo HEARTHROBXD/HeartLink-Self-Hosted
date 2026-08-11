@@ -61,12 +61,16 @@
 curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | sudo bash
 ```
 
+安装器会直接拉取官方预编译镜像，不会在这台服务器上安装 Rust 或现场编译；首次运行的主要耗时是 Docker、HeartLink 和 MySQL 镜像下载。
+
 安装器不区分局域网或公网，也不申请域名和证书。默认将业务 API 与管理面板发布到所有 IPv4 接口：
 
 ```text
 http://SERVER_IP:8787
 http://SERVER_IP:8789
 ```
+
+`8789` 的 TCP 映射会正常发布，但管理应用只接受回环、局域网/私网来源或同机反向代理；公网来源直接访问会返回 `403`。这是应用层安全限制，不表示端口映射失败。公网管理请使用受信任的 HTTPS 反向代理或安装结果中给出的 SSH 隧道。
 
 如需限定监听网卡，可在首次安装或升级时指定地址：
 
@@ -103,7 +107,7 @@ sudo /opt/heartlink-cloud/install.sh status
 sudo /opt/heartlink-cloud/install.sh upgrade
 ```
 
-升级会构建新的只增版本目录并原子切换 `current`，保留数据库卷、配置和原云端身份私钥。
+升级会创建新的只增版本目录、拉取官方预编译镜像并原子切换 `current`，保留数据库卷、配置和原云端身份私钥。用户服务器不会运行 Rust 编译。
 
 ### 卸载
 
@@ -115,14 +119,14 @@ sudo /opt/heartlink-cloud/install.sh uninstall
 
 ### 安装失败后的恢复
 
-安装器只有在镜像构建、身份密钥生成和服务启动全部成功后才写入“已安装”状态。若中途失败，数据和已生成的密钥会保留，并可直接执行：
+安装器只有在预编译镜像拉取、身份密钥生成和服务启动全部成功后才写入“已安装”状态。若中途失败，数据和已生成的密钥会保留，并可直接执行：
 
 ```bash
 sudo /opt/heartlink-cloud/install.sh status
 sudo /opt/heartlink-cloud/install.sh reinstall
 ```
 
-`reinstall` 会重新下载并构建当前版本，但不会清除数据库卷或身份密钥。失败升级会恢复先前的版本指针，可使用 `start` 重新启动旧版本；`stop` 可停止服务而不删除数据。即使首次安装尚未生成完整的 Compose 文件，`status` 与 `uninstall` 也不会再被半安装状态锁死。
+`reinstall` 会重新下载轻量发布文件并拉取当前预编译镜像，但不会清除数据库卷或身份密钥。失败升级会恢复先前的版本指针和运行配置，可使用 `start` 重新启动旧版本；`stop` 可停止服务而不删除数据。即使首次安装尚未生成完整的 Compose 文件，`status` 与 `uninstall` 也不会再被半安装状态锁死。
 
 如果是安装器 `1.2.0` 或更早版本，并遇到 `/opt/heartlink-cloud/current/install.sh: command not found`，先用 Bash 绕过旧归档缺失的可执行位，再用最新安装器修复稳定管理入口和服务健康状态：
 
@@ -174,6 +178,8 @@ graph LR
 | `HEARTLINK_DATABASE_NAME` | MySQL 数据库名。 | `heartlink` |
 | `HEARTLINK_DATABASE_USER` | MySQL 应用账户。 | `heartlink` |
 | `HEARTLINK_DATABASE_PASSWORD` | MySQL 应用账户密码。 | 安装器随机生成 |
+| `HEARTLINK_SERVER_IMAGE` | HeartLink 官方多架构预编译镜像；安装器默认锁定到不可变摘要。 | 当前 `1.4.0` 固定摘要 |
+| `HEARTLINK_MYSQL_IMAGE` | MySQL 运行镜像；可通过安装器的 `--mysql-image` 覆盖。 | `mysql:8.4.10` |
 | `HEARTLINK_PUBLISH_IP` | 业务端口 `8787` 的 IPv4 发布地址；`0.0.0.0` 表示所有 IPv4 接口。 | `0.0.0.0` |
 | `HEARTLINK_PANEL_PUBLISH_IP` | 管理面板端口 `8789` 的 IPv4 发布地址；可设为指定网卡或 `127.0.0.1`。 | `0.0.0.0` |
 | `HEARTLINK_REGISTRATION_ENABLED` | 是否允许新账户注册。 | `true` |
@@ -231,12 +237,12 @@ graph LR
 
 ## 部署
 
-一键安装器从当前仓库拉取源码，在服务器本地构建仅含自部署功能的镜像，并生成独立密码和身份密钥。
+一键安装器只下载轻量发布文件及官方预编译的 `amd64`/`arm64` 镜像，并在本机生成独立密码和身份密钥；用户服务器不安装 Rust 工具链，也不执行 `cargo build` 或 Docker 镜像构建。
 
-- 使用 [Docker Compose 配置](infra/docker/compose.yaml)部署 MySQL 和 HeartLink 服务；业务端口和面板端口均支持绑定指定 IPv4 地址。
+- 使用 [Docker Compose 配置](infra/docker/compose.yaml)部署 MySQL 和 HeartLink 服务；MySQL 只接入内部数据库网络，HeartLink 额外接入可路由的边缘网络，确保 Docker 29 等版本能真正发布 `8787`/`8789`，同时不暴露 `3306`。
 - 使用 [1Panel 配置](infra/docker/compose.1panel.yaml)接入已有的 MySQL 容器和 Docker 网络。
 - 域名、WAF、TLS 证书和反向代理不属于安装器职责；用户可以选择 Nginx、Caddy、1Panel、雷池或其他网关，并使用 IP 上游。
-- 使用 [GitHub Actions](.github/workflows/ci.yml)验证格式、Clippy、测试、Docker 构建和公开边界。
+- 官方仓库使用 [镜像发布工作流](.github/workflows/publish-image.yml)集中构建多架构镜像，并使用 [GitHub Actions](.github/workflows/ci.yml)验证格式、Clippy、测试、Compose 配置和公开边界。
 - 生产部署前阅读 [安全策略](SECURITY.md)，备份 `/opt/heartlink-cloud/secrets`、配置文件和 Docker 数据卷。
 
 ## 贡献

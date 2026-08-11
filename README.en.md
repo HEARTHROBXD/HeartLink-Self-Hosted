@@ -61,12 +61,16 @@
 curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | sudo bash
 ```
 
+The installer pulls the official prebuilt image directly. It does not install Rust or compile on this server; first-run time is dominated by downloading Docker, HeartLink, and MySQL images.
+
 The installer does not distinguish between LAN and Internet deployment, and it does not request domains or certificates. By default, the cloud API and administration panel are published on every IPv4 interface:
 
 ```text
 http://SERVER_IP:8787
 http://SERVER_IP:8789
 ```
+
+The TCP mapping for `8789` is published normally, but the administration application accepts only loopback, LAN/private sources, or a same-host reverse proxy. A direct request from a public source returns `403`; that is an application security policy, not a failed port mapping. Use a trusted HTTPS reverse proxy or the SSH tunnel printed by the installer for public administration.
 
 To restrict either service to a specific interface, provide its IPv4 address during installation or upgrade:
 
@@ -103,7 +107,7 @@ sudo /opt/heartlink-cloud/install.sh status
 sudo /opt/heartlink-cloud/install.sh upgrade
 ```
 
-An upgrade builds a new append-only release directory and atomically switches `current`, while preserving database volumes, configuration, and the original cloud identity private key.
+An upgrade creates a new append-only release directory, pulls the official prebuilt image, and atomically switches `current`, while preserving database volumes, configuration, and the original cloud identity private key. No Rust compilation runs on the user's server.
 
 ### Uninstall
 
@@ -115,14 +119,14 @@ A normal uninstall removes the containers and installed state while preserving d
 
 ### Recover from a failed installation
 
-The installer marks HeartLink as installed only after the image build, identity-key generation, and service startup all succeed. If any step fails, existing data and generated secrets are preserved. Run:
+The installer marks HeartLink as installed only after the prebuilt-image pull, identity-key generation, and service startup all succeed. If any step fails, existing data and generated secrets are preserved. Run:
 
 ```bash
 sudo /opt/heartlink-cloud/install.sh status
 sudo /opt/heartlink-cloud/install.sh reinstall
 ```
 
-`reinstall` downloads and builds the selected release again without clearing database volumes or identity keys. A failed upgrade restores the previous release pointer so `start` can resume the prior version; `stop` stops services without deleting data. `status` and `uninstall` also remain available when the first installation failed before a complete Compose runtime was created.
+`reinstall` downloads the lightweight release files and pulls the selected prebuilt image again without clearing database volumes or identity keys. A failed upgrade restores the previous release pointer and runtime configuration so `start` can resume the prior version; `stop` stops services without deleting data. `status` and `uninstall` also remain available when the first installation failed before a complete Compose runtime was created.
 
 For installer `1.2.0` and earlier, if `/opt/heartlink-cloud/current/install.sh: command not found` appears, invoke the old file through Bash to bypass its missing executable bit, then repair the stable entry point and runtime health with the current installer:
 
@@ -174,6 +178,8 @@ The installer writes runtime configuration to `/opt/heartlink-cloud/.env`. The t
 | `HEARTLINK_DATABASE_NAME` | MySQL database name. | `heartlink` |
 | `HEARTLINK_DATABASE_USER` | MySQL application account. | `heartlink` |
 | `HEARTLINK_DATABASE_PASSWORD` | MySQL application password. | Randomly generated |
+| `HEARTLINK_SERVER_IMAGE` | Official multi-architecture HeartLink image; the installer pins an immutable digest by default. | Current pinned `1.4.0` digest |
+| `HEARTLINK_MYSQL_IMAGE` | MySQL runtime image; override it with the installer's `--mysql-image` option. | `mysql:8.4.10` |
 | `HEARTLINK_PUBLISH_IP` | IPv4 publish address for cloud port `8787`; `0.0.0.0` selects every IPv4 interface. | `0.0.0.0` |
 | `HEARTLINK_PANEL_PUBLISH_IP` | IPv4 publish address for panel port `8789`; set a specific interface or `127.0.0.1` when required. | `0.0.0.0` |
 | `HEARTLINK_REGISTRATION_ENABLED` | Enables new account registration. | `true` |
@@ -231,12 +237,12 @@ The public protocol is defined in the [OpenAPI 3.1 specification](docs/api/opena
 
 ## Deployment
 
-The one-command installer pulls source from this repository, builds the self-hosted-only image on the server, and generates independent passwords and identity keys.
+The one-command installer downloads only lightweight release files plus the official prebuilt `amd64`/`arm64` image, then generates independent passwords and identity keys locally. It does not install a Rust toolchain or run `cargo build` or a Docker image build on the user's server.
 
-- Use the [Docker Compose configuration](infra/docker/compose.yaml) for MySQL and HeartLink; both application ports support binding to a selected IPv4 address.
+- Use the [Docker Compose configuration](infra/docker/compose.yaml) for MySQL and HeartLink. MySQL stays only on the internal database network, while HeartLink also joins a routable edge network so Docker 29 and similar releases actually publish `8787`/`8789` without exposing `3306`.
 - Use the [1Panel configuration](infra/docker/compose.1panel.yaml) with an existing MySQL container and Docker network.
 - Domains, WAFs, TLS certificates, and reverse proxies are outside the installer boundary. Operators may use Nginx, Caddy, 1Panel, SafeLine, or another gateway with IP upstreams.
-- Use [GitHub Actions](.github/workflows/ci.yml) to validate formatting, Clippy, tests, Docker builds, and the public-source boundary.
+- The official repository uses the [image publishing workflow](.github/workflows/publish-image.yml) to build multi-architecture images centrally, while [GitHub Actions](.github/workflows/ci.yml) validates formatting, Clippy, tests, Compose configuration, and the public-source boundary.
 - Read the [security policy](SECURITY.md) before production deployment, and back up `/opt/heartlink-cloud/secrets`, configuration, and Docker volumes.
 
 ## Contributing
