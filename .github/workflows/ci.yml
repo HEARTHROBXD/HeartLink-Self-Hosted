@@ -24,8 +24,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Validate installer file mode and line endings
+        run: |
+          test "$(git ls-files --stage install.sh | awk '{print $1}')" = "100755"
+          test "$(head -n 1 install.sh)" = '#!/usr/bin/env bash'
+          ! grep -U $'\r' install.sh
       - run: bash -n install.sh
       - run: bash install.sh --help
+      - run: bash tests/install-smoke.sh
       - name: Validate Docker Compose configurations
         env:
           HEARTLINK_DATABASE_PASSWORD: validation-only-password
