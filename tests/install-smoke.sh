@@ -6,6 +6,11 @@ export HEARTLINK_INSTALLER_LIBRARY=1
 # shellcheck source=../install.sh
 source "$repo_root/install.sh"
 
+[[ "$DEFAULT_SERVER_IMAGE" =~ ^ghcr\.io/hearthrobxd/heartlink-self-hosted:1\.4\.0@sha256:[0-9a-f]{64}$ ]] || {
+  printf 'installer smoke test failed: default server image is not pinned to the 1.4.0 digest\n' >&2
+  exit 1
+}
+
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -13,6 +18,18 @@ fail_test() {
   printf 'installer smoke test failed: %s\n' "$*" >&2
   exit 1
 }
+
+compose_file="$repo_root/infra/docker/compose.yaml"
+mysql_service="$(awk '/^  mysql:/{keep=1} /^  sync:/{keep=0} keep' "$compose_file")"
+sync_service="$(awk '/^  sync:/{keep=1} /^volumes:/{keep=0} keep' "$compose_file")"
+[[ "$mysql_service" == *'      - database'* ]] || fail_test "MySQL left the private database network"
+[[ "$mysql_service" != *'      - edge'* ]] || fail_test "MySQL was attached to the published-port network"
+[[ "$sync_service" == *'      - database'* && "$sync_service" == *'      - edge'* ]] || \
+  fail_test "HeartLink has no routable network for published ports"
+grep -A2 '^  database:' "$compose_file" | grep -q 'internal: true' || \
+  fail_test "database network is not internal"
+grep -A2 '^  edge:' "$compose_file" | grep -q 'driver: bridge' || \
+  fail_test "published-port edge network is missing"
 
 INSTALL_DIR="$test_root/heartlink-cloud"
 mkdir -p "$INSTALL_DIR/current"
@@ -26,7 +43,9 @@ cmp "$repo_root/install.sh" "$INSTALL_DIR/install.sh" || fail_test "stable manag
 
 printf '%s\n' \
   'HEARTLINK_PUBLISH_IP=192.0.2.10' \
-  'HEARTLINK_PANEL_PUBLISH_IP=127.0.0.1' >"$INSTALL_DIR/.env"
+  'HEARTLINK_PANEL_PUBLISH_IP=127.0.0.1' \
+  'HEARTLINK_SERVER_IMAGE=registry.example.test/heartlink/server:tested@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+  'HEARTLINK_MYSQL_IMAGE=registry.example.test/library/mysql:8.4.10' >"$INSTALL_DIR/.env"
 REPOSITORY="HEARTHROBXD/HeartLink-Self-Hosted"
 SOURCE_REF="main"
 SOURCE_ARCHIVE_URL="https://mirror.example.test/heartlink/main.tar.gz"
@@ -40,17 +59,23 @@ PANEL_PUBLISH_IP_EXPLICIT=0
 SOURCE_ARCHIVE_URL_EXPLICIT=0
 SOURCE_ARCHIVE_URL_PERSISTED=0
 SOURCE_REF_EXPLICIT=0
+SERVER_IMAGE_EXPLICIT=0
+MYSQL_IMAGE_EXPLICIT=0
 load_persisted_configuration
 [[ "$PUBLISH_IP" == "192.0.2.10" ]] || fail_test "cloud bind address was not preserved"
 [[ "$PANEL_PUBLISH_IP" == "127.0.0.1" ]] || fail_test "panel bind address was not preserved"
 [[ "$SOURCE_ARCHIVE_URL" == "https://mirror.example.test/heartlink/main.tar.gz" ]] || \
   fail_test "source mirror was not preserved"
+[[ "$SERVER_IMAGE" == "registry.example.test/heartlink/server:tested@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" ]] || \
+  fail_test "prebuilt server image was not preserved"
+[[ "$MYSQL_IMAGE" == "registry.example.test/library/mysql:8.4.10" ]] || \
+  fail_test "MySQL image override was not preserved"
 
 INSTALL_DIR="$test_root/integration"
 events="$test_root/install-events"
 mkdir -p "$INSTALL_DIR"
 PREVIOUS_CURRENT_TARGET=""
-PREVIOUS_IMAGE_ID=""
+PREVIOUS_ENV_BACKUP=""
 INSTALL_OPERATION_ACTIVE=0
 COMMAND="install"
 install_prerequisites() { :; }
@@ -65,7 +90,12 @@ write_environment() {
   printf 'HEARTLINK_PUBLISH_IP=0.0.0.0\nHEARTLINK_PANEL_PUBLISH_IP=0.0.0.0\n' >"$INSTALL_DIR/.env"
   printf 'environment\n' >>"$events"
 }
-compose() { printf 'compose:%s\n' "$*" >>"$events"; }
+compose() {
+  printf 'compose:%s' "$1" >>"$events"
+  shift
+  printf ' %s' "$@" >>"$events"
+  printf '\n' >>"$events"
+}
 ensure_identity_key() { printf 'identity\n' >>"$events"; }
 wait_for_runtime() {
   [[ ! -e "$INSTALL_DIR/.heartlink-install-root" ]] || \
@@ -76,9 +106,22 @@ write_result() { printf 'result\n' >>"$events"; }
 
 install_or_upgrade
 [[ -f "$INSTALL_DIR/.heartlink-install-root" ]] || fail_test "successful install has no completion marker"
+[[ "$(grep -c '^compose:pull sync mysql$' "$events")" == "1" ]] || \
+  fail_test "prebuilt runtime images were not pulled exactly once"
+if grep -q '^compose:build' "$events"; then
+  fail_test "installer attempted to compile an image on the user's server"
+fi
+pull_line="$(grep -n '^compose:pull sync mysql$' "$events" | cut -d: -f1)"
+identity_line="$(grep -n '^identity$' "$events" | cut -d: -f1)"
+[[ "$pull_line" -lt "$identity_line" ]] || fail_test "identity generation ran before the prebuilt image pull"
 health_line="$(grep -n '^health$' "$events" | cut -d: -f1)"
 result_line="$(grep -n '^result$' "$events" | cut -d: -f1)"
 [[ "$health_line" -lt "$result_line" ]] || fail_test "result was generated before health verification"
+
+validate_image_reference "server image" "ghcr.io/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+if (validate_image_reference "server image" "invalid image reference"); then
+  fail_test "invalid image reference was accepted"
+fi
 
 PUBLISH_IP="0.0.0.0"
 PANEL_PUBLISH_IP="127.0.0.1"
