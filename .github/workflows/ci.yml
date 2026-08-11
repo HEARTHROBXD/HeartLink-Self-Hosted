@@ -1,27 +1,55 @@
-name: Bootstrap self-hosted installer executable modes
+name: Self-hosted cloud CI
 
 on:
   push:
-    branches:
-      - fix/self-hosted-installer-v130
+  pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  fix-modes:
+  rust:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Commit Linux executable modes
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy -p heartlink-server --no-default-features --features self-hosted --all-targets -- -D warnings
+      - run: cargo test -p heartlink-server --no-default-features --features self-hosted
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate installer file mode and line endings
         run: |
-          chmod +x install.sh tests/install-smoke.sh
-          git add --chmod=+x install.sh tests/install-smoke.sh
-          if git diff --cached --quiet; then
-            echo "Executable modes are already correct."
-            exit 0
-          fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "chore: restore installer executable modes"
-          git push origin "HEAD:${GITHUB_REF_NAME}"
+          test "$(git ls-files --stage install.sh | awk '{print $1}')" = "100755"
+          test "$(head -n 1 install.sh)" = '#!/usr/bin/env bash'
+          ! grep -U $'\r' install.sh
+      - run: bash -n install.sh
+      - run: bash install.sh --help
+      - run: bash tests/install-smoke.sh
+      - name: Validate Docker Compose configurations
+        env:
+          HEARTLINK_DATABASE_PASSWORD: validation-only-password
+          HEARTLINK_DATABASE_ROOT_PASSWORD: validation-only-root-password
+          HEARTLINK_DATABASE_HOST: mysql
+          HEARTLINK_DOCKER_NETWORK: onepanel
+          HEARTLINK_PUBLISH_IP: 192.0.2.10
+          HEARTLINK_PANEL_PUBLISH_IP: 192.0.2.10
+        run: |
+          docker compose -f infra/docker/compose.yaml config --quiet
+          docker compose -f infra/docker/compose.1panel.yaml config --quiet
+      - run: docker build -f apps/server/Dockerfile .
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
