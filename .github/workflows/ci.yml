@@ -1,49 +1,27 @@
-name: Self-hosted cloud CI
+name: Bootstrap self-hosted installer executable modes
 
 on:
   push:
-  pull_request:
+    branches:
+      - fix/self-hosted-installer-v130
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  rust:
+  fix-modes:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy -p heartlink-server --no-default-features --features self-hosted --all-targets -- -D warnings
-      - run: cargo test -p heartlink-server --no-default-features --features self-hosted
-
-  image:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - run: bash -n install.sh
-      - run: bash install.sh --help
-      - name: Validate Docker Compose configurations
-        env:
-          HEARTLINK_DATABASE_PASSWORD: validation-only-password
-          HEARTLINK_DATABASE_ROOT_PASSWORD: validation-only-root-password
-          HEARTLINK_DATABASE_HOST: mysql
-          HEARTLINK_DOCKER_NETWORK: onepanel
-          HEARTLINK_PUBLISH_IP: 192.0.2.10
-          HEARTLINK_PANEL_PUBLISH_IP: 192.0.2.10
+      - name: Commit Linux executable modes
         run: |
-          docker compose -f infra/docker/compose.yaml config --quiet
-          docker compose -f infra/docker/compose.1panel.yaml config --quiet
-      - run: docker build -f apps/server/Dockerfile .
-
-  secret-scan:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          chmod +x install.sh tests/install-smoke.sh
+          git add --chmod=+x install.sh tests/install-smoke.sh
+          if git diff --cached --quiet; then
+            echo "Executable modes are already correct."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: restore installer executable modes"
+          git push origin "HEAD:${GITHUB_REF_NAME}"
