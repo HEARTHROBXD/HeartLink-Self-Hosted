@@ -71,7 +71,7 @@ jobs:
           trap cleanup EXIT
           printf '%s\n' 'validation-only-admin-password' > "$secret_dir/admin-password.txt"
           head -c 32 /dev/urandom > "$secret_dir/admin-settings.key"
-          docker run --rm --user 0:0 \
+          docker run --rm --user "$(id -u):$(id -g)" \
             -v "$secret_dir:/keys" \
             --entrypoint heartlink-server heartlink/self-hosted:ci \
             --generate-handshake-key /keys/cloud-handshake.key \
