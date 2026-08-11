@@ -111,4 +111,47 @@ if runtime_is_ready; then
   fail_test "runtime without HTTP listeners was accepted"
 fi
 
+INSTALL_DIR="$test_root/uninstall-state"
+mkdir -p "$INSTALL_DIR"
+touch "$INSTALL_DIR/.heartlink-install-root"
+uninstall_events="$test_root/uninstall-events"
+PURGE_DATA=0
+compose_available() { return 0; }
+compose() { printf 'compose:%s %s\n' "${1:-}" "${2:-}" >>"$uninstall_events"; }
+
+uninstall_cloud
+[[ ! -e "$INSTALL_DIR/.heartlink-install-root" ]] || fail_test "normal uninstall preserved the installed marker"
+[[ ! -e "$INSTALL_DIR/.heartlink-installing" ]] || fail_test "normal uninstall preserved the partial marker"
+[[ -f "$INSTALL_DIR/.heartlink-uninstalled" ]] || fail_test "normal uninstall did not record the preserved-data state"
+[[ "$(grep -c '^compose:down --remove-orphans$' "$uninstall_events")" == "1" ]] || \
+  fail_test "normal uninstall did not remove containers exactly once"
+
+uninstall_cloud
+[[ "$(grep -c '^compose:down --remove-orphans$' "$uninstall_events")" == "1" ]] || \
+  fail_test "repeated uninstall was not idempotent"
+
+status_output="$(show_status)"
+[[ "$status_output" == *"State: uninstalled"* ]] || fail_test "status did not report the uninstalled state"
+
+install_events="$test_root/reinstall-events"
+install_or_upgrade() { printf 'install\n' >>"$install_events"; }
+install_cloud
+[[ "$(grep -c '^install$' "$install_events")" == "1" ]] || \
+  fail_test "install did not recover the preserved-data state"
+
+rm -f -- "$INSTALL_DIR/.heartlink-uninstalled"
+touch "$INSTALL_DIR/.heartlink-install-root"
+runtime_is_ready() { return 1; }
+install_cloud
+[[ "$(grep -c '^install$' "$install_events")" == "2" ]] || \
+  fail_test "install did not repair a legacy stopped runtime with an installed marker"
+
+runtime_is_ready() { return 0; }
+show_status() { printf 'healthy-status\n' >>"$install_events"; }
+install_cloud
+[[ "$(grep -c '^install$' "$install_events")" == "2" ]] || \
+  fail_test "install rebuilt an already healthy installation"
+[[ "$(grep -c '^healthy-status$' "$install_events")" == "1" ]] || \
+  fail_test "install did not report an already healthy installation"
+
 printf 'installer smoke test passed\n'
