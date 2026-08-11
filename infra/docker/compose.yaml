@@ -1,6 +1,6 @@
 services:
   mysql:
-    image: mysql:8.4.10
+    image: "${HEARTLINK_MYSQL_IMAGE:-mysql:8.4.10}"
     restart: unless-stopped
     environment:
       MYSQL_DATABASE: "${HEARTLINK_DATABASE_NAME:-heartlink}"
@@ -26,10 +26,7 @@ services:
       - database
 
   sync:
-    build:
-      context: ../..
-      dockerfile: apps/server/Dockerfile
-    image: heartlink/self-hosted:local
+    image: "${HEARTLINK_SERVER_IMAGE:?set HEARTLINK_SERVER_IMAGE to the pinned prebuilt image}"
     restart: unless-stopped
     depends_on:
       mysql:
@@ -62,6 +59,7 @@ services:
       - "${HEARTLINK_PANEL_PUBLISH_IP:-0.0.0.0}:8789:8789"
     networks:
       - database
+      - edge
     security_opt:
       - no-new-privileges:true
     read_only: true
@@ -74,3 +72,5 @@ volumes:
 networks:
   database:
     internal: true
+  edge:
+    driver: bridge
