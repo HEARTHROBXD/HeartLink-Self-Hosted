@@ -2,19 +2,21 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 
-readonly INSTALLER_VERSION="1.4.1"
+readonly INSTALLER_VERSION="1.5.0"
 readonly DEFAULT_INSTALL_DIR="/opt/heartlink-cloud"
-readonly DEFAULT_REPOSITORY="HEARTHROBXD/HeartLink-Self-Hosted"
+readonly DEFAULT_REPOSITORY="hearthrobxd/HeartLink-Self-Hosted"
 readonly DEFAULT_STARTUP_TIMEOUT="180"
 readonly DEFAULT_SERVER_IMAGE="ghcr.io/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:ca11b030a629c4e7eaeb38b9c39959aba4e8de576b4bb06dc4b2d5a9e7aaa3d9"
-readonly DEFAULT_SERVER_IMAGE_MIRROR="ghcr.nju.edu.cn/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:ca11b030a629c4e7eaeb38b9c39959aba4e8de576b4bb06dc4b2d5a9e7aaa3d9"
+readonly DEFAULT_SERVER_IMAGE_MIRROR="ghcr.1ms.run/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:ca11b030a629c4e7eaeb38b9c39959aba4e8de576b4bb06dc4b2d5a9e7aaa3d9"
+readonly LEGACY_SERVER_IMAGE_MIRROR="ghcr.nju.edu.cn/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:ca11b030a629c4e7eaeb38b9c39959aba4e8de576b4bb06dc4b2d5a9e7aaa3d9"
 readonly DEFAULT_MYSQL_IMAGE="mysql:8.4.10"
+readonly DEFAULT_MYSQL_IMAGE_MIRROR="docker.1ms.run/library/mysql:8.4.10"
 
 COMMAND="install"
 INSTALL_DIR="${HEARTLINK_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
 REPOSITORY="${HEARTLINK_REPOSITORY:-$DEFAULT_REPOSITORY}"
 SOURCE_REF="${HEARTLINK_SOURCE_REF:-main}"
-SOURCE_ARCHIVE_URL="${HEARTLINK_SOURCE_ARCHIVE_URL:-https://github.com/$REPOSITORY/archive/$SOURCE_REF.tar.gz}"
+SOURCE_ARCHIVE_URL="${HEARTLINK_SOURCE_ARCHIVE_URL:-https://gitee.com/$REPOSITORY/repository/archive/$SOURCE_REF.tar.gz}"
 PUBLISH_IP="${HEARTLINK_PUBLISH_IP:-0.0.0.0}"
 PANEL_PUBLISH_IP="${HEARTLINK_PANEL_PUBLISH_IP:-0.0.0.0}"
 STARTUP_TIMEOUT="${HEARTLINK_STARTUP_TIMEOUT:-$DEFAULT_STARTUP_TIMEOUT}"
@@ -69,7 +71,8 @@ The installer does not configure domains, certificates, or a reverse proxy.
 Both services are published by IP. Configure HTTPS separately and proxy to
 the selected IP addresses on ports 8787 and 8789.
 For the default digest-pinned HeartLink image, a failed GHCR pull is retried
-through a mainland mirror. Explicit --server-image overrides are never changed.
+through 毫秒镜像 (ghcr.1ms.run). The MySQL image uses Docker Hub acceleration
+through docker.1ms.run. Explicit image overrides are never changed.
 EOF
 }
 
@@ -146,6 +149,19 @@ load_persisted_configuration() {
     fi
   fi
 
+  # Mirror endpoints selected by an earlier automatic fallback are runtime
+  # state, not user overrides. Start each upgrade from the primary endpoint so
+  # both routes remain available; explicit command-line/environment images are
+  # still preserved exactly.
+  if (( ! SERVER_IMAGE_EXPLICIT )) && \
+      [[ "$SERVER_IMAGE" == "$DEFAULT_SERVER_IMAGE_MIRROR" || \
+         "$SERVER_IMAGE" == "$LEGACY_SERVER_IMAGE_MIRROR" ]]; then
+    SERVER_IMAGE="$DEFAULT_SERVER_IMAGE"
+  fi
+  if (( ! MYSQL_IMAGE_EXPLICIT )) && [[ "$MYSQL_IMAGE" == "$DEFAULT_MYSQL_IMAGE_MIRROR" ]]; then
+    MYSQL_IMAGE="$DEFAULT_MYSQL_IMAGE"
+  fi
+
   if [[ -f "$installer_state" ]]; then
     if (( ! REPOSITORY_EXPLICIT )); then
       value="$(read_config_value repository "$installer_state" || true)"
@@ -164,8 +180,13 @@ load_persisted_configuration() {
     fi
   fi
 
+  if (( ! SOURCE_ARCHIVE_URL_EXPLICIT )) && [[ "$SOURCE_ARCHIVE_URL" =~ ^https://(github\.com/(HEARTHROBXD|hearthrobxd)/HeartLink-Self-Hosted/archive|heartlink\.hearthrob\.cn/HEARTHROBXD/HeartLink-Self-Hosted/archive)/[^[:space:]]+\.tar\.gz$ ]]; then
+    SOURCE_ARCHIVE_URL="https://gitee.com/hearthrobxd/HeartLink-Self-Hosted/repository/archive/$SOURCE_REF.tar.gz"
+    SOURCE_ARCHIVE_URL_PERSISTED=0
+  fi
+
   if (( ! SOURCE_ARCHIVE_URL_EXPLICIT && ! SOURCE_ARCHIVE_URL_PERSISTED && SOURCE_REF_EXPLICIT )); then
-    SOURCE_ARCHIVE_URL="https://github.com/$REPOSITORY/archive/$SOURCE_REF.tar.gz"
+    SOURCE_ARCHIVE_URL="https://gitee.com/$REPOSITORY/repository/archive/$SOURCE_REF.tar.gz"
   fi
 }
 
@@ -408,7 +429,15 @@ compose() {
 
 pull_runtime_images() {
   log "Pulling prebuilt HeartLink and MySQL images; no Rust compilation runs on this server"
-  compose pull mysql
+  if ! compose pull mysql; then
+    if ((MYSQL_IMAGE_EXPLICIT)) || [[ "$MYSQL_IMAGE" != "$DEFAULT_MYSQL_IMAGE" ]]; then
+      fail "the configured MySQL image could not be pulled; check registry access or select another --mysql-image"
+    fi
+    log "The primary Docker Hub pull failed; retrying MySQL through 毫秒镜像 (docker.1ms.run)"
+    MYSQL_IMAGE="$DEFAULT_MYSQL_IMAGE_MIRROR"
+    upsert_env HEARTLINK_MYSQL_IMAGE "$MYSQL_IMAGE"
+    compose pull mysql || fail "the MySQL image could not be pulled from Docker Hub or docker.1ms.run"
+  fi
   if compose pull sync; then
     return 0
   fi
@@ -417,15 +446,15 @@ pull_runtime_images() {
     fail "the configured HeartLink image could not be pulled; check registry access or select another --server-image"
   fi
 
-  log "The primary GHCR pull failed; retrying the same pinned image through the mainland mirror"
+  log "The primary GHCR pull failed; retrying the same pinned image through 毫秒镜像 (ghcr.1ms.run)"
   SERVER_IMAGE="$DEFAULT_SERVER_IMAGE_MIRROR"
   upsert_env HEARTLINK_SERVER_IMAGE "$SERVER_IMAGE"
   if compose pull sync; then
-    log "Using the digest-verified mainland mirror for the HeartLink image"
+    log "Using the digest-verified 毫秒镜像 endpoint for the HeartLink image"
     return 0
   fi
 
-  fail "the HeartLink image could not be pulled from GHCR or the mainland mirror"
+  fail "the HeartLink image could not be pulled from GHCR or ghcr.1ms.run"
 }
 
 probe_ip() {

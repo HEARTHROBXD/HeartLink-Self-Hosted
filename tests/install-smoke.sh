@@ -10,15 +10,6 @@ source "$repo_root/install.sh"
   printf 'installer smoke test failed: default server image is not pinned to the 1.4.0 digest\n' >&2
   exit 1
 }
-[[ "$DEFAULT_SERVER_IMAGE_MIRROR" =~ ^ghcr\.nju\.edu\.cn/hearthrobxd/heartlink-self-hosted:1\.4\.0@sha256:[0-9a-f]{64}$ ]] || {
-  printf 'installer smoke test failed: mainland mirror is not pinned to the 1.4.0 digest\n' >&2
-  exit 1
-}
-[[ "${DEFAULT_SERVER_IMAGE##*@}" == "${DEFAULT_SERVER_IMAGE_MIRROR##*@}" ]] || {
-  printf 'installer smoke test failed: primary and mirror image digests differ\n' >&2
-  exit 1
-}
-
 test_root="$(mktemp -d)"
 trap 'rm -rf -- "$test_root"' EXIT
 
@@ -26,6 +17,13 @@ fail_test() {
   printf 'installer smoke test failed: %s\n' "$*" >&2
   exit 1
 }
+
+[[ "$DEFAULT_SERVER_IMAGE_MIRROR" =~ ^ghcr\.1ms\.run/hearthrobxd/heartlink-self-hosted:1\.4\.0@sha256:[0-9a-f]{64}$ ]] || \
+  fail_test "default HeartLink mirror does not use the digest-pinned 1ms GHCR endpoint"
+[[ "${DEFAULT_SERVER_IMAGE##*@}" == "${DEFAULT_SERVER_IMAGE_MIRROR##*@}" ]] || \
+  fail_test "primary and mirror HeartLink digests differ"
+[[ "$DEFAULT_MYSQL_IMAGE_MIRROR" == "docker.1ms.run/library/mysql:8.4.10" ]] || \
+  fail_test "default MySQL mirror does not use the 1ms Docker Hub endpoint"
 
 compose_file="$repo_root/infra/docker/compose.yaml"
 mysql_service="$(awk '/^  mysql:/{keep=1} /^  sync:/{keep=0} keep' "$compose_file")"
@@ -79,6 +77,25 @@ load_persisted_configuration
 [[ "$MYSQL_IMAGE" == "registry.example.test/library/mysql:8.4.10" ]] || \
   fail_test "MySQL image override was not preserved"
 
+printf '%s\n' \
+  'repository=HEARTHROBXD/HeartLink-Self-Hosted' \
+  'source_ref=main' \
+  'archive_url=https://github.com/HEARTHROBXD/HeartLink-Self-Hosted/archive/main.tar.gz' >"$INSTALL_DIR/.heartlink-installer-source"
+printf '%s\n' \
+  "HEARTLINK_SERVER_IMAGE=$LEGACY_SERVER_IMAGE_MIRROR" \
+  "HEARTLINK_MYSQL_IMAGE=$DEFAULT_MYSQL_IMAGE_MIRROR" >"$INSTALL_DIR/.env"
+SOURCE_ARCHIVE_URL="https://github.com/HEARTHROBXD/HeartLink-Self-Hosted/archive/main.tar.gz"
+SOURCE_ARCHIVE_URL_PERSISTED=0
+SERVER_IMAGE="$DEFAULT_SERVER_IMAGE"
+MYSQL_IMAGE="$DEFAULT_MYSQL_IMAGE"
+load_persisted_configuration
+[[ "$SOURCE_ARCHIVE_URL" == "https://gitee.com/hearthrobxd/HeartLink-Self-Hosted/repository/archive/main.tar.gz" ]] || \
+  fail_test "legacy GitHub source archive was not migrated to Gitee"
+[[ "$SERVER_IMAGE" == "$DEFAULT_SERVER_IMAGE" ]] || \
+  fail_test "automatically persisted legacy HeartLink mirror became an explicit override"
+[[ "$MYSQL_IMAGE" == "$DEFAULT_MYSQL_IMAGE" ]] || \
+  fail_test "automatically persisted MySQL mirror became an explicit override"
+
 INSTALL_DIR="$test_root/integration"
 events="$test_root/install-events"
 mkdir -p "$INSTALL_DIR"
@@ -115,9 +132,9 @@ write_result() { printf 'result\n' >>"$events"; }
 install_or_upgrade
 [[ -f "$INSTALL_DIR/.heartlink-install-root" ]] || fail_test "successful install has no completion marker"
 [[ "$(grep -c '^compose:pull mysql$' "$events")" == "1" ]] || \
-  fail_test "MySQL image was not pulled exactly once"
+  fail_test "the MySQL image was not pulled exactly once"
 [[ "$(grep -c '^compose:pull sync$' "$events")" == "1" ]] || \
-  fail_test "prebuilt HeartLink image was not pulled exactly once"
+  fail_test "the prebuilt HeartLink image was not pulled exactly once"
 if grep -q '^compose:build' "$events"; then
   fail_test "installer attempted to compile an image on the user's server"
 fi
@@ -128,39 +145,78 @@ health_line="$(grep -n '^health$' "$events" | cut -d: -f1)"
 result_line="$(grep -n '^result$' "$events" | cut -d: -f1)"
 [[ "$health_line" -lt "$result_line" ]] || fail_test "result was generated before health verification"
 
-INSTALL_DIR="$test_root/mirror-fallback"
+INSTALL_DIR="$test_root/mysql-fallback"
 mkdir -p "$INSTALL_DIR"
-printf 'HEARTLINK_SERVER_IMAGE=%s\n' "$DEFAULT_SERVER_IMAGE" >"$INSTALL_DIR/.env"
+printf 'HEARTLINK_SERVER_IMAGE=%s\nHEARTLINK_MYSQL_IMAGE=%s\n' \
+  "$DEFAULT_SERVER_IMAGE" "$DEFAULT_MYSQL_IMAGE" >"$INSTALL_DIR/.env"
 SERVER_IMAGE="$DEFAULT_SERVER_IMAGE"
+MYSQL_IMAGE="$DEFAULT_MYSQL_IMAGE"
 SERVER_IMAGE_EXPLICIT=0
-fallback_events="$test_root/fallback-events"
+MYSQL_IMAGE_EXPLICIT=0
+fallback_events="$test_root/mysql-fallback-events"
 compose() {
-  printf 'compose:%s %s image=%s\n' "${1:-}" "${2:-}" "$SERVER_IMAGE" >>"$fallback_events"
+  printf 'compose:%s %s server=%s mysql=%s\n' \
+    "${1:-}" "${2:-}" "$SERVER_IMAGE" "$MYSQL_IMAGE" >>"$fallback_events"
+  if [[ "${1:-}" == "pull" && "${2:-}" == "mysql" && "$MYSQL_IMAGE" == "$DEFAULT_MYSQL_IMAGE" ]]; then
+    return 1
+  fi
+}
+pull_runtime_images
+[[ "$MYSQL_IMAGE" == "$DEFAULT_MYSQL_IMAGE_MIRROR" ]] || \
+  fail_test "failed Docker Hub pull did not select the MySQL mirror"
+grep -Fxq "HEARTLINK_MYSQL_IMAGE=$DEFAULT_MYSQL_IMAGE_MIRROR" "$INSTALL_DIR/.env" || \
+  fail_test "selected MySQL mirror was not persisted"
+[[ "$(grep -c '^compose:pull mysql ' "$fallback_events")" == "2" ]] || \
+  fail_test "MySQL image did not receive exactly one mirror retry"
+
+INSTALL_DIR="$test_root/server-fallback"
+mkdir -p "$INSTALL_DIR"
+printf 'HEARTLINK_SERVER_IMAGE=%s\nHEARTLINK_MYSQL_IMAGE=%s\n' \
+  "$DEFAULT_SERVER_IMAGE" "$DEFAULT_MYSQL_IMAGE" >"$INSTALL_DIR/.env"
+SERVER_IMAGE="$DEFAULT_SERVER_IMAGE"
+MYSQL_IMAGE="$DEFAULT_MYSQL_IMAGE"
+fallback_events="$test_root/server-fallback-events"
+compose() {
+  printf 'compose:%s %s server=%s mysql=%s\n' \
+    "${1:-}" "${2:-}" "$SERVER_IMAGE" "$MYSQL_IMAGE" >>"$fallback_events"
   if [[ "${1:-}" == "pull" && "${2:-}" == "sync" && "$SERVER_IMAGE" == "$DEFAULT_SERVER_IMAGE" ]]; then
     return 1
   fi
 }
-
 pull_runtime_images
 [[ "$SERVER_IMAGE" == "$DEFAULT_SERVER_IMAGE_MIRROR" ]] || \
-  fail_test "failed GHCR pull did not select the mainland mirror"
+  fail_test "failed GHCR pull did not select the HeartLink mirror"
 grep -Fxq "HEARTLINK_SERVER_IMAGE=$DEFAULT_SERVER_IMAGE_MIRROR" "$INSTALL_DIR/.env" || \
-  fail_test "selected mainland mirror was not persisted"
+  fail_test "selected HeartLink mirror was not persisted"
 [[ "$(grep -c '^compose:pull sync ' "$fallback_events")" == "2" ]] || \
   fail_test "HeartLink image did not receive exactly one mirror retry"
 
 explicit_image="registry.example.test/heartlink/server:tested@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-printf 'HEARTLINK_SERVER_IMAGE=%s\n' "$explicit_image" >"$INSTALL_DIR/.env"
+printf 'HEARTLINK_SERVER_IMAGE=%s\nHEARTLINK_MYSQL_IMAGE=%s\n' \
+  "$explicit_image" "$DEFAULT_MYSQL_IMAGE" >"$INSTALL_DIR/.env"
 SERVER_IMAGE="$explicit_image"
 SERVER_IMAGE_EXPLICIT=1
 compose() {
   [[ "${1:-}" == "pull" && "${2:-}" == "mysql" ]]
 }
 if (pull_runtime_images >/dev/null 2>&1); then
-  fail_test "failed explicit image override was silently replaced"
+  fail_test "failed explicit HeartLink image override was silently replaced"
 fi
 grep -Fxq "HEARTLINK_SERVER_IMAGE=$explicit_image" "$INSTALL_DIR/.env" || \
-  fail_test "failed explicit image override was modified"
+  fail_test "failed explicit HeartLink image override was modified"
+
+SERVER_IMAGE_EXPLICIT=0
+MYSQL_IMAGE="registry.example.test/library/mysql:8.4.10"
+MYSQL_IMAGE_EXPLICIT=1
+printf 'HEARTLINK_MYSQL_IMAGE=%s\n' "$MYSQL_IMAGE" >"$INSTALL_DIR/.env"
+compose() { return 1; }
+if (pull_runtime_images >/dev/null 2>&1); then
+  fail_test "failed explicit MySQL image override was silently replaced"
+fi
+grep -Fxq 'HEARTLINK_MYSQL_IMAGE=registry.example.test/library/mysql:8.4.10' "$INSTALL_DIR/.env" || \
+  fail_test "failed explicit MySQL image override was modified"
+SERVER_IMAGE_EXPLICIT=0
+MYSQL_IMAGE_EXPLICIT=0
 
 validate_image_reference "server image" "ghcr.io/hearthrobxd/heartlink-self-hosted:1.4.0@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 if (validate_image_reference "server image" "invalid image reference"); then

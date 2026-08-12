@@ -58,12 +58,10 @@
 ### 安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | sudo bash
+curl -fsSL https://gitee.com/hearthrobxd/HeartLink-Self-Hosted/raw/main/install.sh | sudo bash
 ```
 
-安装器会直接拉取官方预编译镜像，不会在这台服务器上安装 Rust 或现场编译；首次运行的主要耗时是 Docker、HeartLink 和 MySQL 镜像下载。
-
-默认先从 GHCR 拉取固定摘要镜像；如果中国大陆网络在 GHCR 分层下载阶段失败，安装器会自动改用南京大学公共镜像站中的同一摘要继续下载。摘要校验保持不变，不会接受内容不同的镜像。显式指定 `--server-image` 或 `HEARTLINK_SERVER_IMAGE` 时，安装器尊重该选择且不自动替换。
+国内一键命令从 Gitee 拉取安装器和轻量源码归档。安装器会直接拉取官方预编译镜像，不会在这台服务器上安装 Rust 或现场编译；首次运行的主要耗时是 Docker、HeartLink 和 MySQL 镜像下载。默认源失败时，HeartLink 的 GHCR 镜像通过 `ghcr.1ms.run` 加速，MySQL 的 Docker Hub 镜像通过 `docker.1ms.run` 加速；固定摘要和显式镜像覆盖均会保留。
 
 安装器不区分局域网或公网，也不申请域名和证书。默认将业务 API 与管理面板发布到所有 IPv4 接口：
 
@@ -77,7 +75,7 @@ http://SERVER_IP:8789
 如需限定监听网卡，可在首次安装或升级时指定地址：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | \
+curl -fsSL https://gitee.com/hearthrobxd/HeartLink-Self-Hosted/raw/main/install.sh | \
   sudo bash -s -- install \
     --publish-ip 192.168.1.20 \
     --panel-publish-ip 192.168.1.20
@@ -180,8 +178,8 @@ graph LR
 | `HEARTLINK_DATABASE_NAME` | MySQL 数据库名。 | `heartlink` |
 | `HEARTLINK_DATABASE_USER` | MySQL 应用账户。 | `heartlink` |
 | `HEARTLINK_DATABASE_PASSWORD` | MySQL 应用账户密码。 | 安装器随机生成 |
-| `HEARTLINK_SERVER_IMAGE` | HeartLink 官方多架构预编译镜像；默认锁定不可变摘要，并在 GHCR 失败时使用同摘要的国内镜像。显式覆盖后不自动替换。 | 当前 `1.4.0` 固定摘要 |
-| `HEARTLINK_MYSQL_IMAGE` | MySQL 运行镜像；可通过安装器的 `--mysql-image` 覆盖。 | `mysql:8.4.10` |
+| `HEARTLINK_SERVER_IMAGE` | HeartLink 官方多架构预编译镜像；安装器默认锁定到不可变摘要，GHCR 失败时使用 `ghcr.1ms.run`。 | 当前 `1.4.0` 固定摘要 |
+| `HEARTLINK_MYSQL_IMAGE` | MySQL 运行镜像；Docker Hub 失败时使用 `docker.1ms.run`，可通过安装器的 `--mysql-image` 覆盖。 | `mysql:8.4.10` |
 | `HEARTLINK_PUBLISH_IP` | 业务端口 `8787` 的 IPv4 发布地址；`0.0.0.0` 表示所有 IPv4 接口。 | `0.0.0.0` |
 | `HEARTLINK_PANEL_PUBLISH_IP` | 管理面板端口 `8789` 的 IPv4 发布地址；可设为指定网卡或 `127.0.0.1`。 | `0.0.0.0` |
 | `HEARTLINK_REGISTRATION_ENABLED` | 是否允许新账户注册。 | `true` |

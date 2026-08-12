@@ -6,7 +6,7 @@ HeartLink 云端是 Linux 通用的 Rust HTTP 服务，负责账户注册/登录
 
 生产数据库固定推荐 **MySQL 8.4.10 LTS**。部署文件钉住完整镜像版本 `mysql:8.4.10`，避免 `latest` 或浮动标签在无人确认时跨版本升级。HeartLink 一键安装与下述 Compose 部署默认使用官方仓库集中构建的 `amd64`/`arm64` 预编译镜像，并锁定不可变摘要；用户服务器不需要安装 Rust，也不会执行 `cargo build`。
 
-一键安装器默认先从 GHCR 拉取 HeartLink 镜像；如果 GHCR 分层下载失败，会自动切换到南京大学公共镜像站并继续拉取同一个固定摘要。手工 Compose 部署遇到相同网络问题时，可把 `HEARTLINK_SERVER_IMAGE` 的仓库前缀替换为 `ghcr.nju.edu.cn/hearthrobxd/heartlink-self-hosted`，但必须保留发行说明中的完整 `@sha256:...` 摘要。
+中国大陆一键安装入口和轻量源码归档默认由 Gitee 提供。安装器仍先尝试官方镜像源；GHCR 不可用时改用 `ghcr.1ms.run` 拉取同一固定摘要，Docker Hub 不可用时改用 `docker.1ms.run/library/mysql:8.4.10`。手工 Compose 部署也可以使用这两个地址，但 HeartLink 镜像必须保留发行说明中的完整 `@sha256:...` 摘要。显式传入的自定义镜像不会被安装器替换。
 
 ## 一、统一 IP 端点与可选反向代理
 
