@@ -58,12 +58,10 @@
 ### Install
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | sudo bash
+curl -fsSL https://gitee.com/hearthrobxd/HeartLink-Self-Hosted/raw/main/install.sh | sudo bash
 ```
 
-The installer pulls the official prebuilt image directly. It does not install Rust or compile on this server; first-run time is dominated by downloading Docker, HeartLink, and MySQL images.
-
-The default path pulls the immutable digest from GHCR first. If a mainland China network cannot download GHCR layers, the installer retries the exact same digest through Nanjing University's public mirror. Digest verification remains mandatory, so different image content is never accepted. An explicit `--server-image` or `HEARTLINK_SERVER_IMAGE` override is respected and never replaced automatically.
+The mainland one-command path downloads the installer and lightweight source archive from Gitee. The installer pulls official prebuilt images and never installs or compiles Rust on this server. If the primary registries fail, it accelerates the HeartLink GHCR image through `ghcr.1ms.run` and the MySQL Docker Hub image through `docker.1ms.run`, while preserving pinned digests and explicit image overrides.
 
 The installer does not distinguish between LAN and Internet deployment, and it does not request domains or certificates. By default, the cloud API and administration panel are published on every IPv4 interface:
 
@@ -77,7 +75,7 @@ The TCP mapping for `8789` is published normally, but the administration applica
 To restrict either service to a specific interface, provide its IPv4 address during installation or upgrade:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HEARTHROBXD/HeartLink-Self-Hosted/main/install.sh | \
+curl -fsSL https://gitee.com/hearthrobxd/HeartLink-Self-Hosted/raw/main/install.sh | \
   sudo bash -s -- install \
     --publish-ip 192.168.1.20 \
     --panel-publish-ip 192.168.1.20
@@ -180,8 +178,8 @@ The installer writes runtime configuration to `/opt/heartlink-cloud/.env`. The t
 | `HEARTLINK_DATABASE_NAME` | MySQL database name. | `heartlink` |
 | `HEARTLINK_DATABASE_USER` | MySQL application account. | `heartlink` |
 | `HEARTLINK_DATABASE_PASSWORD` | MySQL application password. | Randomly generated |
-| `HEARTLINK_SERVER_IMAGE` | Official multi-architecture HeartLink image; the default is digest-pinned and uses a same-digest mainland mirror if GHCR fails. Explicit overrides are never replaced. | Current pinned `1.4.0` digest |
-| `HEARTLINK_MYSQL_IMAGE` | MySQL runtime image; override it with the installer's `--mysql-image` option. | `mysql:8.4.10` |
+| `HEARTLINK_SERVER_IMAGE` | Official multi-architecture HeartLink image; the installer pins an immutable digest and falls back to `ghcr.1ms.run` when GHCR fails. | Current pinned `1.4.0` digest |
+| `HEARTLINK_MYSQL_IMAGE` | MySQL runtime image; Docker Hub failures fall back to `docker.1ms.run`; override it with `--mysql-image`. | `mysql:8.4.10` |
 | `HEARTLINK_PUBLISH_IP` | IPv4 publish address for cloud port `8787`; `0.0.0.0` selects every IPv4 interface. | `0.0.0.0` |
 | `HEARTLINK_PANEL_PUBLISH_IP` | IPv4 publish address for panel port `8789`; set a specific interface or `127.0.0.1` when required. | `0.0.0.0` |
 | `HEARTLINK_REGISTRATION_ENABLED` | Enables new account registration. | `true` |
